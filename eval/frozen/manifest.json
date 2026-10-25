@@ -1,5 +1,32 @@
 {
  "datasets": {
+  "degraded_telemetry": {
+   "description": "realistic exports: half the flow records sampled out, unidirectional NetFlow (no reply counters) and 30% of resolver records lost (about 3% compromised)",
+   "digest": "8bc3b219f599ecd5f91d5fdb8795f4162c00b4d93adafcadec8185f4fd7c130b",
+   "spec": {
+    "days": 3,
+    "dns_loss": 0.3,
+    "flow_sampling": 0.5,
+    "malicious_fraction": 0.03,
+    "n_devices": 300,
+    "name": "degraded_telemetry",
+    "seed": 4444,
+    "start": "2026-10-29T00:00:00+00:00",
+    "tenant_id": "bench-degraded",
+    "uniflow": true
+   },
+   "summary": {
+    "A_malicious_device_days": 23,
+    "B_hard_negative_device_days": 54,
+    "B_legitimate_device_days": 877,
+    "base_rate": 0.025555555555555557,
+    "device_days": 900,
+    "devices": 300,
+    "events": 293862,
+    "hard_negative_devices": 18,
+    "malicious_devices": 9
+   }
+  },
   "high_prevalence": {
    "description": "infection-heavy segment (about 8% of devices compromised during the window)",
    "digest": "1285c583773b98006c1af6b5e0ec629d427579385a7c5894dd7f6c23d614ef18",

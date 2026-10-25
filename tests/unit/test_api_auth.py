@@ -251,3 +251,76 @@ def test_oidc_end_to_end_through_the_api(tmp_path, idp):
     assert client.get("/api/v1/auth/config").json()["auth_mode"] == "oidc"
     dev = jwt.encode({"sub": "a", "tenant_id": "isp-a", "roles": ["admin"]}, "s" * 48, algorithm="HS256")
     assert client.get("/api/v1/me", headers={"Authorization": f"Bearer {dev}"}).status_code == 401
+
+
+# ----------------------------------------------------------------------------- console browser sign-in (PKCE)
+
+def _login_app(tmp_path, handler):
+    import httpx
+
+    from aegis.api.auth import OIDCLogin
+    from test_api_helpers import make_service, make_client
+
+    svc = make_service(tmp_path, auth_mode="oidc", oidc_issuer=ISSUER, oidc_audience=AUDIENCE,
+                       oidc_client_id="aegis-console", demo_tenant=None)
+    client = make_client(svc)
+    client.app.state.oidc_login = OIDCLogin(svc.settings, client=httpx.Client(transport=httpx.MockTransport(handler)))
+    return svc, client
+
+
+def test_console_pkce_login_config_and_token_relay(tmp_path):
+    import httpx
+
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/.well-known/openid-configuration"):
+            return httpx.Response(200, json={"issuer": ISSUER, "authorization_endpoint": f"{ISSUER}/auth",
+                                             "token_endpoint": f"{ISSUER}/token",
+                                             "end_session_endpoint": f"{ISSUER}/logout"})
+        from urllib.parse import parse_qs
+        form = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
+        seen.append(form)
+        if form.get("code") == "bad":
+            return httpx.Response(400, json={"error": "invalid_grant"})
+        return httpx.Response(200, json={"access_token": "at", "refresh_token": "rt", "expires_in": 300,
+                                         "token_type": "Bearer", "scope": "openid"})
+
+    svc, client = _login_app(tmp_path, handler)
+    cfg = client.get("/api/v1/auth/config").json()
+    assert cfg["oidc_login"]["client_id"] == "aegis-console"
+    assert cfg["oidc_login"]["authorization_endpoint"] == f"{ISSUER}/auth"
+    assert "offline_access" in cfg["oidc_login"]["scopes"]
+    verifier = "v" * 64
+    ok = client.post("/api/v1/auth/token", json={"grant_type": "authorization_code", "code": "c1",
+                                                  "code_verifier": verifier,
+                                                  "redirect_uri": "http://testserver/auth/callback"})
+    assert ok.status_code == 200, ok.text
+    assert ok.json() == {"access_token": "at", "refresh_token": "rt", "token_type": "Bearer", "expires_in": 300}
+    assert seen[-1] == {"grant_type": "authorization_code", "code": "c1", "code_verifier": verifier,
+                        "redirect_uri": "http://testserver/auth/callback", "client_id": "aegis-console"}
+    r = client.post("/api/v1/auth/token", json={"grant_type": "refresh_token", "refresh_token": "rt"})
+    assert r.status_code == 200 and seen[-1]["grant_type"] == "refresh_token"
+    # a foreign redirect URI is refused before anything reaches the IdP
+    n = len(seen)
+    r = client.post("/api/v1/auth/token", json={"grant_type": "authorization_code", "code": "c1",
+                                                 "code_verifier": verifier,
+                                                 "redirect_uri": "https://evil.example/auth/callback"})
+    assert r.status_code == 422 and len(seen) == n
+    r = client.post("/api/v1/auth/token", json={"grant_type": "authorization_code", "code": "bad",
+                                                 "code_verifier": verifier,
+                                                 "redirect_uri": "http://testserver/auth/callback"})
+    assert r.status_code == 401 and r.json()["error"] == "token_exchange_failed"
+    assert client.post("/api/v1/auth/token", json={"grant_type": "password"}).status_code == 422
+    svc.close()
+
+
+def test_token_relay_absent_without_a_console_client(tmp_path):
+    from test_api_helpers import make_client, make_service
+
+    svc = make_service(tmp_path)
+    client = make_client(svc)
+    assert client.get("/api/v1/auth/config").json()["oidc_login"] is None
+    assert client.post("/api/v1/auth/token", json={"grant_type": "refresh_token",
+                                                    "refresh_token": "x"}).status_code == 404
+    svc.close()

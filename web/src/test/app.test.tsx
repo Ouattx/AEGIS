@@ -98,3 +98,36 @@ describe("enforcement mode", () => {
     expect(enforcementMode([{ ...active, valid_now: false }]).mode).toBe("none");
   });
 });
+
+describe("sign-in and overview honesty", () => {
+  it("offers single sign-on when the deployment registers a console client, token paste as fallback", async () => {
+    const api = fakeApi({
+      "GET /auth/config": () =>
+        new Response(
+          JSON.stringify({
+            auth_mode: "oidc", oidc_issuer: "https://idp.example/realms/isp", oidc_audience: "aegis-api", demo: false, roles: [],
+            oidc_login: { client_id: "aegis-console", scopes: "openid offline_access", authorization_endpoint: "https://idp.example/auth", end_session_endpoint: null },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    });
+    renderApp("/login", api.fetchImpl as unknown as typeof fetch);
+    expect(await screen.findByTestId("sso-login")).toBeEnabled();
+    expect(screen.getByTestId("token-fallback")).not.toHaveAttribute("open");
+  });
+
+  it("lists only actionable cases, approvals first, oldest first", async () => {
+    const { attentionQueue } = await import("../pages/Overview");
+    const mk = (id: string, state: string, severity: string, updated: string) =>
+      ({ case_id: id, state, severity, updated_at: updated }) as unknown as import("../api/types").Case;
+    const q = attentionQueue([
+      mk("v", "VERIFIED", "critical", "2026-10-01T00:00:00Z"),
+      mk("i-new", "INVESTIGATING", "high", "2026-10-03T00:00:00Z"),
+      mk("i-old", "INVESTIGATING", "high", "2026-10-02T00:00:00Z"),
+      mk("p", "PROPOSED", "low", "2026-10-04T00:00:00Z"),
+      mk("n", "NEW", "critical", "2026-10-01T00:00:00Z"),
+      mk("r", "REJECTED", "critical", "2026-10-01T00:00:00Z"),
+    ]);
+    expect(q.map((c) => c.case_id)).toEqual(["p", "i-old", "i-new", "n"]);
+  });
+});

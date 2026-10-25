@@ -18,6 +18,7 @@ from aegis.mirror.base import (
     ExecutionRecord,
     ExecutionStatus,
     InvalidTargetError,
+    RollbackRehearsal,
     UnsupportedActionError,
     action_summary,
     normalized_targets,
@@ -64,6 +65,26 @@ class DryRunAdapter(EnforcementAdapter):
                                     "at": now.isoformat()})
         return AdapterResult(adapter=self.name, operation="revert", dry_run=True)
 
+    def rehearse_rollback(self, action: ProposedAction, *, now: datetime) -> RollbackRehearsal:
+        """Apply then revert on a private scratch copy and compare the simulated state."""
+        try:
+            self.check_supported(action)
+            normalized_targets(action)
+        except (UnsupportedActionError, InvalidTargetError) as exc:
+            return RollbackRehearsal(ok=False, method="scratch_apply_revert", detail=str(exc))
+        scratch = DryRunAdapter()
+        with self._lock:
+            scratch._active = {k: dict(v) for k, v in self._active.items()}
+        before = scratch.active()
+        applied = scratch.apply(action, now=now)
+        present = action.action_id in scratch.active()
+        scratch.revert(action, applied.prior_state, now=now)
+        restored = scratch.active() == before
+        return RollbackRehearsal(ok=present and restored, method="scratch_apply_revert",
+                                 detail="simulated enforcement state restored exactly" if present and restored
+                                 else "simulated enforcement state was not restored",
+                                 checks={"applied": present, "restored_exactly": restored})
+
     def active(self) -> dict[str, dict[str, Any]]:
         """Simulated enforcement currently in place, by action id."""
         with self._lock:
@@ -73,6 +94,6 @@ class DryRunAdapter(EnforcementAdapter):
 __all__ = [
     "AdapterError", "AdapterResult", "BreakerState", "CircuitBreaker", "DryRunAdapter",
     "EnforcementAdapter", "ExecutionError", "ExecutionRecord", "ExecutionStatus", "Executor",
-    "HealthSample", "InvalidTargetError", "RPZAdapter", "UnsupportedActionError",
+    "HealthSample", "InvalidTargetError", "RPZAdapter", "RollbackRehearsal", "UnsupportedActionError",
     "WebhookAdapter", "rpz_ip_owner", "sign_webhook", "verify_webhook_signature",
 ]

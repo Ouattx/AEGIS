@@ -480,3 +480,67 @@ def test_concurrent_appends_distinct_tenants(sf):
     for k in range(4):
         assert ledger.count(f"t{k}") == 20
         assert ledger.verify_chain(f"t{k}") == (True, None)
+
+
+# ------------------------------------------------------------------ external signed head anchor
+
+def _rewind_head(engine, seq: int, head_hash: str) -> None:
+    with engine.begin() as c:
+        c.execute(text("UPDATE ledger_heads SET seq=:s, head_hash=:h WHERE tenant_id='t1'"),
+                  {"s": seq, "h": head_hash})
+
+
+def test_truncation_with_rewritten_head_is_caught_by_external_anchor(sf, engine, signer, tmp_path):
+    """An attacker with database access deletes the tail AND rewinds ledger_heads: the
+    in-database checks pass, the signed checkpoint outside the database does not."""
+    from aegis.provenance.ledger import HeadAnchor
+
+    anchor = HeadAnchor(tmp_path / "anchors" / "heads.jsonl", signer)
+    ledger = Ledger(sf, signer=signer, anchor=anchor)
+    entries = _fill(ledger, 5)
+    ring = KeyRing()
+    ring.add_signer(signer)
+    assert ledger.verify_report("t1", ring).ok
+    _tamper(engine, "DELETE FROM ledger_entries WHERE tenant_id='t1' AND seq>=4")
+    _rewind_head(engine, 3, entries[2].entry_hash)
+    assert Ledger(sf, signer=signer).verify_report("t1", ring).ok  # the database alone is fooled
+    report = ledger.verify_report("t1", ring)
+    assert not report.ok and report.first_bad_seq == 4
+    assert "external signed head anchor" in report.reason
+
+
+def test_anchor_ignores_forged_lines_and_detects_divergence(sf, engine, signer, tmp_path):
+    from aegis.provenance.ledger import HeadAnchor
+
+    path = tmp_path / "heads.jsonl"
+    anchor = HeadAnchor(path, signer)
+    ledger = Ledger(sf, signer=signer, anchor=anchor)
+    _fill(ledger, 3)
+    ring = KeyRing()
+    ring.add_signer(signer)
+    # garbage and an unsigned "head" claiming seq 99 are ignored
+    with open(path, "a") as fh:
+        fh.write("not json\n")
+        fh.write('{"v":1,"tenant_id":"t1","seq":99,"head_hash":"00","recorded_at":"x",'
+                 '"signer_key_id":"ledger-k1","signature":"AAAA"}\n')
+    assert anchor.latest("t1", ring)["seq"] == 3
+    assert ledger.verify_report("t1", ring).ok
+    # an attacker-signed checkpoint (unknown key) does not verify either
+    rogue = Signer.generate("rogue")
+    HeadAnchor(path, rogue).record(ledger.latest("t1").model_copy(update={"seq": 50}))
+    assert anchor.latest("t1", ring)["seq"] == 3
+
+
+def test_anchor_is_per_tenant(sf, signer, tmp_path):
+    from aegis.provenance.ledger import HeadAnchor
+
+    anchor = HeadAnchor(tmp_path / "heads.jsonl", signer)
+    ledger = Ledger(sf, signer=signer, anchor=anchor)
+    _fill(ledger, 2, tenant="t1")
+    _fill(ledger, 4, tenant="t2")
+    ring = KeyRing()
+    ring.add_signer(signer)
+    assert anchor.latest("t1", ring)["seq"] == 2
+    assert anchor.latest("t2", ring)["seq"] == 4
+    assert anchor.latest("t3", ring) is None
+    assert ledger.verify_report("t1", ring).ok and ledger.verify_report("t2", ring).ok

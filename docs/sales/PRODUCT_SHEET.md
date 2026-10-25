@@ -18,7 +18,7 @@ SOC can verify and act on, without accusing the household that simply streams a 
   shared hosting and CDNs and refuses when the impact is unknown. Nothing runs without your signed policy, a
   legal sign-off reference and a second person's approval.
 * **Proves itself:** a proof-of-value report with false alerts per 10,000 device-days, analyst effort per
-  case, detection delay, cost per protected device-month and a zero-enforcement attestation.
+  case, detection delay, cost per monitored device-month and a zero-enforcement attestation.
 
 ## Built for operators
 
@@ -36,7 +36,7 @@ SOC can verify and act on, without accusing the household that simply streams a 
 Two to four weeks, read-only, on telemetry you already have. Success criteria agreed before we start.
 At the end: the proof-of-value report on your network, and a decision based on your numbers.
 
-**Contact:** [FOUNDER TO SET: name, email, phone]
+**Contact:** [FOUNDER TO SET contact: name, email, phone]
 
 *SHIELD v1 is sold in shadow mode. Performance figures from our synthetic lab are not field results; field
 performance is measured in your pilot.*

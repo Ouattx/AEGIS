@@ -1,0 +1,29 @@
+# Commercial terms of the sales kit. Copy to commercial.toml (kept out of the repository),
+# replace every value marked EXAMPLE, then render:
+#
+#   python deploy/tools/render_sales_kit.py --config commercial.toml --out dist/sales
+#
+# The renderer refuses while any value is missing, empty or still contains "EXAMPLE".
+
+[values]
+# scope of the paid shadow pilot
+vantage_points = "EXAMPLE 2"
+segment_lines = "EXAMPLE 50,000 lines"
+partner_feeds = "EXAMPLE no partner feeds"
+named_users = "EXAMPLE 10"
+
+# prices (state currency and tax treatment)
+pilot_fee = "EXAMPLE EUR 0 excl. VAT"
+extension_fee = "EXAMPLE EUR 0 excl. VAT"
+extra_vantage_fee = "EXAMPLE EUR 0 excl. VAT per vantage point"
+credit_window_days = "EXAMPLE 60"
+production_credit = "EXAMPLE 100% of the pilot fee"
+payment_terms = "EXAMPLE 50% at signature, 50% at report delivery"
+travel_terms = "EXAMPLE included within the EU"
+
+# company
+contact = "EXAMPLE name, email, phone"
+security_policy_owner = "EXAMPLE policy document, named owner"
+staff_screening = "EXAMPLE background checks and annual security training"
+cyber_insurance = "EXAMPLE insurer, cover amount"
+license_scan = "EXAMPLE license scan date and tool"

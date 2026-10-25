@@ -162,7 +162,7 @@ class CostInputs:
     other_monthly: float = 0.0                # support, storage, connectivity...
     analyst_hourly_rate: float = 85.0         # fully loaded SOC analyst cost per hour
     llm_cost_per_investigation: float = 0.0   # optional LLM-assisted investigation cost
-    protected_devices: int | None = None      # defaults to devices observed
+    monitored_devices: int | None = None      # defaults to devices observed
 
     def __post_init__(self) -> None:
         for k in ("license_monthly", "infrastructure_monthly", "other_monthly", "analyst_hourly_rate",
@@ -170,8 +170,8 @@ class CostInputs:
             v = getattr(self, k)
             if not isinstance(v, (int, float)) or v < 0:
                 raise ValueError(f"{k} must be a non-negative number")
-        if self.protected_devices is not None and self.protected_devices < 0:
-            raise ValueError("protected_devices must be non-negative")
+        if self.monitored_devices is not None and self.monitored_devices < 0:
+            raise ValueError("monitored_devices must be non-negative")
         if not self.currency or len(self.currency) > 8:
             raise ValueError("currency must be a short code such as USD or EUR")
 

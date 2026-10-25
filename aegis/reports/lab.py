@@ -100,38 +100,41 @@ def run_lab_pilot(*, seed: int = 7, n_devices: int = 120, days: int = 3, malicio
                                 case_service=cases, clock=clock) if investigate else None
     truth = dict(corpus.labels)
     counts: dict[str, int] = {"verified": 0, "rejected": 0, "inconclusive": 0}
-    opened = 0
-    for f in findings:
-        if f.verdict not in (Verdict.MALICIOUS, Verdict.SUSPICIOUS):
-            continue
+    alerts = [f for f in findings if f.verdict in (Verdict.MALICIOUS, Verdict.SUSPICIOUS)]
+    order: list[str] = []
+    for f in alerts:  # one incident, one case: findings of a device join its open case
         case = cases.open_case(f)
-        opened += 1
-        cases.transition(tenant_id, case.case_id, CaseState.TRIAGE, ANALYST, "alert triaged in shadow pilot")
-        case = cases.transition(tenant_id, case.case_id, CaseState.INVESTIGATING, ANALYST,
+        if case.case_id not in order:
+            order.append(case.case_id)
+    opened = len(order)
+    finding_of = {f.finding_id: f for f in findings}
+    for case_id in order:
+        cases.transition(tenant_id, case_id, CaseState.TRIAGE, ANALYST, "alert triaged in shadow pilot")
+        case = cases.transition(tenant_id, case_id, CaseState.INVESTIGATING, ANALYST,
                                 "bounded investigation started")
         alternatives = ["benign high-volume streaming or IPTV workload",
                         "shared CDN infrastructure co-hosting the indicator"]
         if investigator is not None:
             report = investigator.investigate(case)
             alternatives = [h.title for h in report.alternative_hypotheses] or alternatives
-        day = device_day_of(f)[1]
-        malicious = truth.get((f.entity_pseudonym, day), "benign") != "benign"
+        malicious = any(truth.get(device_day_of(finding_of[fid]), "benign") != "benign"
+                        for fid in case.finding_ids if fid in finding_of)
         cases.record_counter_hypothesis_review(
-            tenant_id, case.case_id, reviewer=ANALYST, alternatives=alternatives,
+            tenant_id, case_id, reviewer=ANALYST, alternatives=alternatives,
             notes=("alternatives reviewed against device history and indicator provenance; "
                    + ("activity confirmed by lab ground truth" if malicious else
                       "activity explained by benign behaviour per lab ground truth")))
         if malicious:
             try:
-                cases.transition(tenant_id, case.case_id, CaseState.VERIFIED, ANALYST,
+                cases.transition(tenant_id, case_id, CaseState.VERIFIED, ANALYST,
                                  "compromise confirmed (lab ground truth)")
                 counts["verified"] += 1
             except GuardError:
-                cases.transition(tenant_id, case.case_id, CaseState.INCONCLUSIVE, ANALYST,
+                cases.transition(tenant_id, case_id, CaseState.INCONCLUSIVE, ANALYST,
                                  "confirmed by ground truth but evidence insufficient for verification guard")
                 counts["inconclusive"] += 1
         else:
-            cases.transition(tenant_id, case.case_id, CaseState.REJECTED, ANALYST,
+            cases.transition(tenant_id, case_id, CaseState.REJECTED, ANALYST,
                              "false alert: benign per lab ground truth")
             counts["rejected"] += 1
 

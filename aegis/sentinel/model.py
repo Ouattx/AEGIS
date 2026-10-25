@@ -107,24 +107,52 @@ def vectorize_many(fvs: Sequence[FeatureVector]) -> np.ndarray:
 
 # ---------------------------------------------------------------------------- calibration
 
+#: Ceiling applied when a calibration map carries no sample counts (artifacts trained
+#: before ceilings were recorded): finite calibration data never supports more than
+#: two nines, so a probability is never reported as certain.
+DEFAULT_PROBABILITY_CEILING = 0.99
+
+
 @dataclass
 class IsotonicCalibrator:
-    """Monotone piecewise-linear map from raw score to probability (JSON-serializable)."""
+    """Monotone piecewise-linear map from raw score to probability (JSON-serializable).
+
+    Isotonic regression saturates at exactly 1.0 on the top block of calibration
+    samples. ``ceiling`` caps the output at the posterior mean of that block under a
+    uniform prior (rule of succession, ``(k + 1) / (n + 2)``), so a calibrated
+    probability is never higher than the calibration evidence supports.
+    """
     x: list[float]
     y: list[float]
+    ceiling: float | None = None
 
     @classmethod
     def fit(cls, raw: np.ndarray, y: np.ndarray) -> "IsotonicCalibrator":
         from sklearn.isotonic import IsotonicRegression
         iso = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip", increasing=True)
         iso.fit(raw, y)
-        return cls([float(v) for v in iso.X_thresholds_], [float(v) for v in iso.y_thresholds_])
+        xs = [float(v) for v in iso.X_thresholds_]
+        ys = [float(v) for v in iso.y_thresholds_]
+        raw_a, y_a = np.asarray(raw, dtype=float), np.asarray(y, dtype=float)
+        top = max(ys) if ys else 1.0
+        start = next((xv for xv, yv in zip(xs, ys) if yv >= top), xs[-1] if xs else 0.0)
+        block = raw_a >= start
+        n, k = int(block.sum()), float(y_a[block].sum())
+        ceiling = round((k + 1.0) / (n + 2.0), 6) if n else DEFAULT_PROBABILITY_CEILING
+        return cls(xs, ys, ceiling)
+
+    @property
+    def effective_ceiling(self) -> float:
+        return self.ceiling if self.ceiling is not None else DEFAULT_PROBABILITY_CEILING
 
     def __call__(self, raw: np.ndarray | float) -> np.ndarray:
-        return np.clip(np.interp(raw, self.x, self.y), 0.0, 1.0)
+        return np.clip(np.interp(raw, self.x, self.y), 0.0, self.effective_ceiling)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"method": "isotonic", "x": self.x, "y": self.y}
+        d: dict[str, Any] = {"method": "isotonic", "x": self.x, "y": self.y}
+        if self.ceiling is not None:
+            d["ceiling"] = self.ceiling
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "IsotonicCalibrator":
@@ -134,7 +162,10 @@ class IsotonicCalibrator:
         if len(x) != len(y) or not x or any(b < a for a, b in zip(x, x[1:])) \
                 or any(b < a for a, b in zip(y, y[1:])):
             raise ValueError("calibration map must be non-empty and monotone")
-        return cls(x, y)
+        ceiling = d.get("ceiling")
+        if ceiling is not None and not 0.5 <= float(ceiling) <= 1.0:
+            raise ValueError("calibration ceiling must be in [0.5, 1]")
+        return cls(x, y, float(ceiling) if ceiling is not None else None)
 
     @property
     def calibration_id(self) -> str:

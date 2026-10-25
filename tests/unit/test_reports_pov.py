@@ -218,7 +218,7 @@ def test_top_cases_order_and_trail():
     p = collect(env, coverage=cov(), top_cases=1)
     assert len(p.top_cases) == 1
     c = p.top_cases[0]
-    assert c.entity_pseudonym == "p_high" and c.state == "VERIFIED" and c.severity == "critical"
+    assert c.entity_pseudonym == "p_high" and c.state == "VERIFIED" and c.severity == "high"
     assert [d.to_state for d in c.decisions] == ["TRIAGE", "INVESTIGATING", "VERIFIED"]
     assert all(d.ledger_entry_hash and len(d.ledger_entry_hash) == 64 for d in c.decisions)
     assert c.snapshot_hash is not None
@@ -259,14 +259,14 @@ def test_effort_estimate_matches_model():
     assert p.effort.model["triage_minutes"] == 5.0
 
 
-def test_cost_per_protected_device_month():
+def test_cost_per_monitored_device_month():
     env = Env()
     f = env.finding("p_1", START + timedelta(hours=5))
     env.disposition(f, CaseState.VERIFIED)
     effort = AnalystEffortModel(triage_minutes=30, minutes_per_evidence_item=0, investigation_minutes=30,
                                 counter_hypothesis_minutes=0, disposition_minutes=0)
     cost = CostInputs(currency="EUR", license_monthly=1000, infrastructure_monthly=200, other_monthly=50,
-                      analyst_hourly_rate=60, llm_cost_per_investigation=0.5, protected_devices=500)
+                      analyst_hourly_rate=60, llm_cost_per_investigation=0.5, monitored_devices=500)
     p = collect(env, coverage=cov(), cost=cost, effort=effort)
     scale = 30.4375 / 3
     analyst = 1.0 * 60 * scale
@@ -393,7 +393,7 @@ def test_html_is_self_contained_print_ready_and_escaped():
     assert "@media print" in html and "<svg" in html
     for section in ("Executive summary", "Devices observed", "Findings by threat class", "Top cases",
                     "False alerts per 10k device-days", "Detection delay", "Estimated minutes per case",
-                    "Cost per protected device-month", "Zero-enforcement attestation", "Ledger integrity verification",
+                    "Cost per 1,000 monitored devices and per incident", "Zero-enforcement attestation", "Ledger integrity verification",
                     "Methodology", "Limitations"):
         assert section in html, section
 

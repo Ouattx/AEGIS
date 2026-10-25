@@ -12,7 +12,16 @@ Integrity layers:
 * the hash chain detects modification of any field, reordering and deletion;
 * sequence numbers must be contiguous from 1, so a removed middle entry is a gap;
 * ``ledger_heads`` records the latest (seq, hash) per tenant, so truncating the
-  tail of the chain is detected;
+  tail of the chain *by accident* is detected. That row is unsigned and lives in the
+  same database, so on its own it does not stop a deliberate truncation;
+* a :class:`HeadAnchor` (when configured) appends a signed ``(tenant, seq,
+  head_hash, recorded_at)`` checkpoint for every entry to an append-only file
+  *outside* the database (put it on a separate volume, a WORM store, or ship it to
+  the SIEM). Verification refuses a chain that is shorter than, or diverges from,
+  the latest valid signed checkpoint, so an attacker with database access alone
+  cannot erase the end of the chain. Remaining limit: an attacker who controls both
+  the database and the anchor file (and holds no signing key) can still roll both
+  back to an older consistent state; an off-host copy of the anchor closes that gap;
 * signatures (verified with a :class:`~aegis.provenance.signing.KeyRing`) stop an
   attacker with database access from rewriting the whole chain consistently;
 * database triggers reject ``UPDATE`` and ``DELETE`` on ``ledger_entries`` on
@@ -43,13 +52,16 @@ should use these keys so decisions can be reconstructed):
 from __future__ import annotations
 
 import json
+import logging
+import os
 import random
 import threading
 import time
 import weakref
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Iterable, Sequence
+from pathlib import Path
+from typing import Any, Iterable, Iterator, Sequence
 
 from sqlalchemy import (
     DDL,
@@ -77,6 +89,9 @@ from aegis.storage.db import Base
 
 GENESIS_HASH = "0" * 64
 LEDGER_HASH_VERSION = 1
+ANCHOR_VERSION = 1
+
+log = logging.getLogger(__name__)
 
 
 class EntryType:
@@ -248,6 +263,114 @@ class ChainReport:
         }
 
 
+# --------------------------------------------------------------- external head anchor
+
+_ANCHOR_LOCKS: dict[str, threading.Lock] = {}
+_ANCHOR_LOCKS_GUARD = threading.Lock()
+
+
+def anchor_message(tenant_id: str, seq: int, head_hash: str, recorded_at: str, signer_key_id: str) -> bytes:
+    """Canonical bytes a head checkpoint signature covers."""
+    return canonical_bytes({"v": ANCHOR_VERSION, "tenant_id": tenant_id, "seq": seq, "head_hash": head_hash,
+                            "recorded_at": recorded_at, "signer_key_id": signer_key_id})
+
+
+class HeadAnchor:
+    """Append-only JSON-lines file of signed ledger head checkpoints, outside the database.
+
+    One line per appended entry: ``{"v", "tenant_id", "seq", "head_hash", "recorded_at",
+    "signer_key_id", "signature"}`` with an Ed25519 signature over
+    :func:`anchor_message`. Lines that do not parse or whose signature does not verify
+    are ignored by :meth:`latest` (an attacker can append garbage, never forge a head).
+    """
+
+    def __init__(self, path: str | Path, signer: Signer):
+        self.path = Path(path)
+        self.signer = signer
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        key = str(self.path.resolve())
+        with _ANCHOR_LOCKS_GUARD:
+            self._lock = _ANCHOR_LOCKS.setdefault(key, threading.Lock())
+
+    def record(self, entry: LedgerEntry) -> None:
+        ts = to_utc(entry.recorded_at).isoformat()
+        sig = self.signer.sign(anchor_message(entry.tenant_id, entry.seq, entry.entry_hash, ts,
+                                              self.signer.key_id))
+        line = json.dumps({"v": ANCHOR_VERSION, "tenant_id": entry.tenant_id, "seq": entry.seq,
+                           "head_hash": entry.entry_hash, "recorded_at": ts,
+                           "signer_key_id": self.signer.key_id, "signature": sig},
+                          separators=(",", ":"), sort_keys=True) + "\n"
+        data = line.encode("utf-8")
+        with self._lock:
+            fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o640)
+            try:
+                os.write(fd, data)
+            finally:
+                os.close(fd)
+
+    def latest(self, tenant_id: str, keyring: KeyRing | None) -> dict[str, Any] | None:
+        """The highest-seq checkpoint of ``tenant_id`` whose signature verifies.
+
+        Without a keyring the anchor's own signer key is used. Scans from the end of
+        the file, so the cost is proportional to the entries written since the
+        tenant's last checkpoint.
+        """
+        if not self.path.is_file():
+            return None
+        best: dict[str, Any] | None = None
+        for raw in _reverse_lines(self.path):
+            try:
+                rec = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(rec, dict) or rec.get("tenant_id") != tenant_id:
+                continue
+            if not self._valid(rec, keyring):
+                continue
+            if best is None or int(rec["seq"]) > int(best["seq"]):
+                best = rec
+            # the file is append-only and seq grows per tenant: the first valid hit from the end wins
+            break
+        return best
+
+    def _valid(self, rec: dict[str, Any], keyring: KeyRing | None) -> bool:
+        try:
+            msg = anchor_message(str(rec["tenant_id"]), int(rec["seq"]), str(rec["head_hash"]),
+                                 str(rec["recorded_at"]), str(rec["signer_key_id"]))
+        except (KeyError, TypeError, ValueError):
+            return False
+        sig = rec.get("signature")
+        if not isinstance(sig, str):
+            return False
+        if keyring is not None:
+            return keyring.verify(str(rec["signer_key_id"]), msg, sig)
+        if rec["signer_key_id"] != self.signer.key_id:
+            return False
+        ring = KeyRing()
+        ring.add_signer(self.signer)
+        return ring.verify(self.signer.key_id, msg, sig)
+
+
+def _reverse_lines(path: Path, chunk: int = 65536) -> Iterator[bytes]:
+    """Lines of ``path`` from last to first (binary, without newlines)."""
+    with open(path, "rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        pos = fh.tell()
+        tail = b""
+        while pos > 0:
+            step = min(chunk, pos)
+            pos -= step
+            fh.seek(pos)
+            buf = fh.read(step) + tail
+            parts = buf.split(b"\n")
+            tail = parts[0]
+            for line in reversed(parts[1:]):
+                if line.strip():
+                    yield line
+        if tail.strip():
+            yield tail
+
+
 # per (engine, tenant) in-process append locks
 _LOCKS: "weakref.WeakKeyDictionary[Engine, dict[str, threading.Lock]]" = weakref.WeakKeyDictionary()
 _LOCKS_GUARD = threading.Lock()
@@ -259,9 +382,15 @@ _MAX_ATTEMPTS = 60
 class Ledger:
     """Tenant-scoped append-only ledger. All reads require a ``tenant_id``."""
 
-    def __init__(self, session_factory: sessionmaker[Session], signer: Signer | None = None):
+    def __init__(self, session_factory: sessionmaker[Session], signer: Signer | None = None, *,
+                 anchor: HeadAnchor | None = None):
         self._sf = session_factory
         self._signer = signer
+        self._anchor = anchor
+
+    @property
+    def anchor(self) -> HeadAnchor | None:
+        return self._anchor
 
     @property
     def signer(self) -> Signer | None:
@@ -296,8 +425,14 @@ class Ledger:
         with self._tenant_lock(tenant_id):
             for attempt in range(_MAX_ATTEMPTS):
                 try:
-                    return self._append_once(tenant_id, entry_type, subject_id, body,
-                                             payload_sha, explicit_ts)
+                    entry = self._append_once(tenant_id, entry_type, subject_id, body,
+                                              payload_sha, explicit_ts)
+                    if self._anchor is not None:
+                        try:
+                            self._anchor.record(entry)
+                        except OSError as exc:  # the entry is committed; a missing anchor only weakens
+                            log.error("ledger head anchor write failed (%s): %s", self._anchor.path, exc)
+                    return entry
                 except _Retry as exc:
                     last_exc = exc
                 except IntegrityError as exc:
@@ -489,6 +624,9 @@ class Ledger:
         expected_seq = 1
         checked = 0
         signed = 0
+        anchor = self._anchor.latest(tenant_id, keyring) if self._anchor is not None else None
+        anchor_seq = int(anchor["seq"]) if anchor is not None else 0
+        anchor_hash_seen: str | None = None
 
         def fail(seq: int, reason: str) -> ChainReport:
             return ChainReport(False, seq, reason, checked, prev_hash, signed)
@@ -533,12 +671,19 @@ class Ledger:
                             return fail(row.seq, "invalid, unknown or revoked signature")
                     elif need_sig:
                         return fail(row.seq, "entry is unsigned")
+                    if row.seq == anchor_seq:
+                        anchor_hash_seen = row.entry_hash
                     prev_hash = row.entry_hash
                     prev_ts = ts
                     expected_seq += 1
                     checked += 1
                     last_seq = row.seq
             head = s.get(LedgerHeadRow, tenant_id)
+        if anchor is not None:
+            if checked < anchor_seq:
+                return fail(checked + 1, "chain is shorter than the external signed head anchor (truncation)")
+            if anchor_hash_seen != anchor["head_hash"]:
+                return fail(anchor_seq, "chain diverges from the external signed head anchor")
         if head is None:
             if checked:
                 return fail(checked, "ledger head record missing")

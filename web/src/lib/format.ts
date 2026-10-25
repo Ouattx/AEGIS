@@ -1,3 +1,4 @@
+import { displayLabel } from "./labels";
 /** Formatting helpers. All timestamps are rendered in UTC: SOC teams across regions share one clock. */
 
 export function fmtNumber(n: number | null | undefined, digits = 0): string {
@@ -65,9 +66,7 @@ export function shortHash(h: string | null | undefined, n = 8): string {
 
 /** ``c2_beaconing`` -> ``C2 beaconing``; ``INVESTIGATING`` -> ``Investigating``. */
 export function humanize(s: string | null | undefined): string {
-  if (!s) return "—";
-  const words = s.replace(/[_-]+/g, " ").trim().toLowerCase();
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  return displayLabel(s);
 }
 
 export function shortPseudonym(p: string | null | undefined): string {

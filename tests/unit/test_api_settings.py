@@ -68,3 +68,36 @@ def test_public_summary_has_no_secrets(tmp_path):
 def test_every_field_has_an_env_var():
     assert set(ENV_VARS) <= set(Settings.model_fields)
     assert all(v.startswith("AEGIS_") for v in ENV_VARS.values())
+
+
+@pytest.mark.parametrize("env, issuer, jwks, ok", [
+    ("development", "https://idp.example", None, True),
+    ("development", "http://idp.example", None, False),
+    ("development", "http://localhost:8080/realms/a", None, True),
+    ("production", "http://localhost:8080/realms/a", None, False),
+    ("production", "https://idp.example", "http://idp.example/certs", False),
+    ("production", "https://idp.example", "https://idp.example/certs", True),
+])
+def test_oidc_urls_must_be_https(env, issuer, jwks, ok, tmp_path):
+    kw = dict(env=env, auth_mode="oidc", oidc_issuer=issuer, oidc_audience="aegis", oidc_jwks_url=jwks,
+              data_dir=tmp_path)
+    if ok:
+        Settings(**kw)
+    else:
+        with pytest.raises((SettingsError, ValidationError), match="https"):
+            Settings(**kw)
+
+
+def test_discovered_jwks_uri_must_be_https(tmp_path):
+    import httpx
+
+    from aegis.api.auth import AuthError, JWKSCache
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"jwks_uri": "http://idp.example/certs"})
+
+    s = Settings(env="production", auth_mode="oidc", oidc_issuer="https://idp.example", oidc_audience="a",
+                 data_dir=tmp_path)
+    cache = JWKSCache(s, client=httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(AuthError):
+        cache._discover()

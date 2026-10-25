@@ -56,6 +56,7 @@ from aegis.oracle.tools import (
     AgentScope,
     ScopeViolation,
     Toolset,
+    clip_text,
     indicators_from_evidence,
     sanitize_text,
     scan_for_injection,
@@ -970,11 +971,11 @@ class _Run:
                      + (f": {', '.join(a.supporting_origins)}" if a.supporting_origins else "") + ".")
         if a.signed_ioc_hits:
             parts.append(f"{len(a.signed_ioc_hits)} verified signed IOC hit(s): "
-                         + "; ".join(sanitize_text(e.summary, 160) for e in a.signed_ioc_hits[:3]) + ".")
+                         + "; ".join(clip_text(e.summary, 160) for e in a.signed_ioc_hits[:3]) + ".")
         if a.contradicting:
             parts.append(f"{len(a.contradicting)} contradicting item(s) from "
                          f"{len(a.contradicting_origins)} independent origin(s): "
-                         + "; ".join(sanitize_text(e.summary, 160) for e in a.contradicting[:3]) + ".")
+                         + "; ".join(clip_text(e.summary, 160) for e in a.contradicting[:3]) + ".")
         if a.rejected:
             reasons: dict[str, int] = {}
             for v in a.rejected.values():

@@ -13,7 +13,7 @@ F1   strong IOC hit and (>= 2 independent origins, or model >= suspicious,  MALI
      or anomaly/change-point corroboration)
 F2   strong IOC hit alone                                                   SUSPICIOUS
 F2b  model >= suspicious, not yet persistent, no weak IOC hit               ABSTAIN
-F3   model >= malicious and anomaly corroboration                           MALICIOUS
+F3   model >= malicious and anomaly corroboration                           SUSPICIOUS
 F4   model >= malicious                                                     SUSPICIOUS
 F5   weak (contradicted / lookup-only / low-confidence) IOC + model >= sus. SUSPICIOUS
 F6   model >= suspicious and anomaly/change-point corroboration             SUSPICIOUS
@@ -34,8 +34,13 @@ Any counter-evidence (a contradicting feed) downgrades MALICIOUS to SUSPICIOUS.
 Anomaly and change-point never produce a positive verdict on their own: they only
 corroborate. A change point (e.g. a device being switched on) is weak context, so it
 can corroborate an indicator hit (F1) or support SUSPICIOUS (F6), but a model-only
-MALICIOUS (F3) needs the behavior to be unusual for its device class. The device
+escalation (F3) needs the behavior to be unusual for its device class. The device
 class itself is not an input of this function.
+
+MALICIOUS is reserved for outcomes that already meet the case verification rule
+(a verified signed-indicator contact, F1): the model, the anomaly detector and the
+change-point monitor all read the same operator telemetry, a single origin, so their
+agreement (F3) is capped at SUSPICIOUS. No one is judged on a single source.
 
 Every MALICIOUS / SUSPICIOUS / ABSTAIN outcome ``requires_review`` (shadow mode).
 """
@@ -56,7 +61,7 @@ CONTEXT_FEATURES = ("flow_rate_h", "bytes_out_rate_log", "unique_dst_ip", "dst_e
 
 @dataclass(frozen=True)
 class FusionPolicy:
-    policy_id: str = "sentinel-fusion/1"
+    policy_id: str = "sentinel-fusion/2"
     min_events: int = 20
     min_coverage_h: float = 1.0
     min_context_features: int = 4
@@ -116,6 +121,11 @@ class FusionResult:
                 "policy_id": self.policy_id, "policy_hash": self.policy_hash}
 
 
+def format_probability(p: float) -> str:
+    """Human-facing calibrated probability: never "1.00" (see the calibration ceiling)."""
+    return ">0.99" if p >= 0.99 else (f"{p:.2f}" if p >= 0.01 else "<0.01")
+
+
 def _eff(e: Evidence) -> float:
     return float(e.payload.get("effective_confidence", 0.0))
 
@@ -157,7 +167,7 @@ def fusion_policy(rule_hits: Sequence[Evidence], ml: MLScore | float | None, ano
     if counter:
         reasons.append(f"{len(counter)} contradicting feed assertion(s)")
     if ml_p is not None:
-        reasons.append(f"calibrated model probability {ml_p:.2f}")
+        reasons.append(f"calibrated model probability {format_probability(ml_p)}")
     if anomaly_hi and anomaly is not None:
         reasons.append(f"behavior more unusual than {anomaly.percentile:.1%} of {anomaly.baseline} baseline windows")
     if cps:
@@ -201,8 +211,10 @@ def fusion_policy(rule_hits: Sequence[Evidence], ml: MLScore | float | None, ano
                       f"elevated model probability in {ml.persistence if ml else 0} consecutive window(s) only "
                       f"(needs {policy.min_model_persistence})", True)
     if ml_mal and anomaly_hi:
-        return result(Verdict.MALICIOUS, "F3_model_corroborated", ml_p or 0.0, True,
-                      "high model probability corroborated by per-class anomaly")
+        # model and anomaly both derive from the operator's own telemetry (one origin):
+        # never MALICIOUS on that alone
+        return result(Verdict.SUSPICIOUS, "F3_model_corroborated", ml_p or 0.0, True,
+                      "high model probability corroborated by per-class anomaly (single telemetry origin)")
     if ml_mal:
         return result(Verdict.SUSPICIOUS, "F4_model_only", ml_p or 0.0, True, "high model probability")
     if weak and ml_sus:
@@ -229,4 +241,4 @@ def fusion_policy(rule_hits: Sequence[Evidence], ml: MLScore | float | None, ano
 
 
 __all__ = ["CONTEXT_FEATURES", "DEFAULT_FUSION_POLICY", "FusionPolicy", "FusionResult", "MLScore",
-           "fusion_policy", "is_strong_hit"]
+           "format_probability", "fusion_policy", "is_strong_hit"]

@@ -7,7 +7,7 @@ suspected compromise (SEV1, see [incident.md](incident.md)). Back up before any 
 | Secret | Where it lives | Effect of rotation | Downtime |
 |---|---|---|---|
 | Ledger signing key | data volume `keys/ledger-<id>.pem`; public key in `trusted/ledger/` | new entries signed by the new key; old entries keep verifying | API restart |
-| Operator policy signing key | operator vault (private); `trusted/policy/` (public) | policies must be re-signed | API restart |
+| Operator policy signing key | operator vault (private); `trusted/policy/` (public; `trusted/policy/<tenant>/` binds the key to one tenant) | policies must be re-signed | API restart |
 | IOC bundle signing key | operator vault (private); `trusted/ioc/` (public) | next bundles signed with the new key | API restart |
 | Pseudonymization master key | `deploy/.env` `AEGIS_PSEUDONYM_MASTER_KEY` (+ vault escrow) | **all pseudonyms change**: plan carefully | API restart |
 | OIDC signing keys | the IdP | automatic: unknown `kid` triggers a JWKS refresh | none |
@@ -86,3 +86,21 @@ initialization, so `.env` and the role must be changed together as above.
 * `/readyz` is ready; `aegis ledger verify` is ok for each tenant.
 * Back up the data volume (`deploy/backup.sh`).
 * Record who rotated what, when and why in the operator's key-management log.
+
+
+## Emergency revocation (compromised key)
+
+Revoke the key at once; no restart is needed:
+
+```bash
+$C exec api aegis keys revoke --kind policy --key-id acme-policy-2026 --reason "private key exposed" --actor secops.alice
+```
+
+`--kind` is `policy`, `ioc`, `ledger` or `model`. The revocation is written to `trusted/<kind>/revoked.txt`
+and to every tenant's ledger; the running API applies it within one sweep interval (`AEGIS_SWEEP_INTERVAL_S`,
+default 60 s) and on every restart, even if the public key file is still on disk. Policies signed by a revoked
+key stop authorizing immediately; an IOC bundle signed by it is deactivated. The active ledger signing key
+cannot be revoked: rotate it first (above), then revoke the old id.
+
+Model artifact signatures use their own trust directory, `trusted/model/` (with
+`AEGIS_MODEL_REQUIRE_SIGNATURE=true`); a model publisher key is never trusted for ledger verification.

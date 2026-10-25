@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import DateTime, Integer, String, event, func, select, text
+from sqlalchemy import DateTime, Integer, String, Text, delete, event, func, insert, select, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from aegis.api.settings import Settings
@@ -59,6 +59,7 @@ from aegis.contracts.models import (
     Evidence,
     EvidenceKind,
     Finding,
+    FindingStatus,
     MirrorResult,
     ObservationEvent,
     OperatorPolicy,
@@ -76,7 +77,7 @@ from aegis.mirror.adapters import DryRunAdapter
 from aegis.mirror.authorize import authorize as mirror_authorize
 from aegis.mirror.base import EnforcementAdapter, ExecutionRecord, ExecutionStatus, InvalidTargetError, normalize_target
 from aegis.mirror.breaker import CircuitBreaker
-from aegis.mirror.executor import ExecutionError, Executor
+from aegis.mirror.executor import ROLLBACK_REHEARSAL_ENTRY, ExecutionError, Executor
 from aegis.mirror.history import AggregateTrafficHistory
 from aegis.mirror.simulate import simulate as mirror_simulate
 from aegis.oracle.investigation import InvestigationReport, Investigator
@@ -84,7 +85,7 @@ from aegis.oracle.llm import llm_from_env
 from aegis.oracle.state_machine import ALLOWED_TRANSITIONS, TERMINAL_STATES, CaseService, GuardError
 from aegis.oracle.tools import build_default_toolset, indicators_from_evidence
 from aegis.provenance.evidence import EvidenceIntegrityError, EvidenceStore
-from aegis.provenance.ledger import EntryType, Ledger
+from aegis.provenance.ledger import EntryType, HeadAnchor, Ledger, compute_entry_hash
 from aegis.provenance.signing import KeyRing, Signer, SigningKeyError, verify_model
 from aegis.provenance.snapshot import replay as ledger_replay
 from aegis.reports.inputs import CoverageStats, ReportPeriod
@@ -102,7 +103,10 @@ ALERT_VERDICTS = (Verdict.MALICIOUS, Verdict.SUSPICIOUS)
 API_AUDIT_ENTRY = "api_audit"
 INGEST_ENTRY = "ingest_batch"
 CONFIG_ENTRY = "configuration"
-KEY_KINDS = ("policy", "ioc", "ledger")
+#: trust directories: operator-policy, IOC-bundle, ledger and model-artifact signing keys.
+#: Purposes never mix: a model publisher's key can never validate a ledger chain.
+KEY_KINDS = ("policy", "ioc", "ledger", "model")
+REVOCATION_FILE = "revoked.txt"
 _KEY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
@@ -205,6 +209,31 @@ class AuthorizationRecord(_Record):
     evidence_quality_ok: bool
 
 
+class LabContextRecord(_Record):
+    """Persisted marker (and ground truth) of a synthetic lab / demo tenant (``doc_id = <tenant>:lab``).
+
+    Survives restarts so every surface that renders the PoV report (API, CLI) shows the
+    synthetic-demo banner and the validation section.
+    """
+    doc_id: str
+    tenant_id: str
+    source: str
+    period_start: datetime
+    period_end: datetime
+    onsets: dict[str, datetime]
+    ground_truth: list[tuple[str, date, str]]
+
+
+class ReportInputsRecord(_Record):
+    """Operator-entered PoV report inputs (``doc_id = <tenant>:report-inputs``)."""
+    doc_id: str
+    tenant_id: str
+    cost: dict[str, Any]
+    effort: dict[str, Any]
+    updated_by: str
+    updated_at: datetime
+
+
 class CoverageDayRow(Base):
     """One observed device-day (denominator of every per-device-day rate)."""
     __tablename__ = "coverage_device_days"
@@ -215,6 +244,20 @@ class CoverageDayRow(Base):
     events: Mapped[int] = mapped_column(Integer)
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DetectionJournalRow(Base):
+    """Recent normalized telemetry (and flush markers) per tenant, in processing order.
+
+    Replayed at startup so SENTINEL's 24 h windows, persistence counters and change-point
+    context survive a restart; pruned to the last window + hop + margin.
+    """
+    __tablename__ = "detection_journal"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    kind: Mapped[str] = mapped_column(String(8))           # "event" | "flush"
+    body: Mapped[str] = mapped_column(Text)
 
 
 class CoverageSourceDayRow(Base):
@@ -299,20 +342,25 @@ class AegisService:
         self.ledger_keyring = KeyRing()
         self.policy_keyring = KeyRing()
         self.ioc_keyring = KeyRing()
+        self.model_keyring = KeyRing()
+        self._policy_key_tenant: dict[str, str] = {}
         self.reload_trusted_keys()
-        self.ledger = Ledger(self.sf, signer=self.ledger_signer)
+        self.ledger = Ledger(self.sf, signer=self.ledger_signer,
+                             anchor=HeadAnchor(settings.resolved_ledger_anchor_path, self.ledger_signer))
         self.evidence = EvidenceStore(self.docs, self.ledger)
 
         # -- graph and cases
         self.atlas = Atlas(self.sf, ledger=self.ledger, clock=self.clock)
         self.cases = CaseService(self.docs, self.evidence, self.ledger, keyring=self.policy_keyring,
-                                 atlas=self.atlas, clock=self.clock)
+                                 atlas=self.atlas, clock=self.clock,
+                                 live_execution_probe=self._live_actions_for_case)
         self.history = AggregateTrafficHistory()
         self._history_span: dict[str, tuple[datetime, datetime]] = {}
         self._topologies: dict[str, OperatorTopology] = {}
         self.toolset = build_default_toolset(docstore=self.docs, evidence_store=self.evidence, ledger=self.ledger,
                                              atlas=self.atlas, keyring=self.policy_keyring,
-                                             simulator=self._simulate_for_agent, clock=self.clock)
+                                             simulator=self._simulate_for_agent, clock=self.clock,
+                                             ledger_keyring=self.ledger_keyring)
         self.llm = llm if llm is not None else (llm_from_env() if (use_env_llm and settings.llm_enabled) else None)
         self.investigator = Investigator(self.llm, self.toolset, case_service=self.cases, clock=self.clock)
 
@@ -338,6 +386,8 @@ class AegisService:
         self.breaker = CircuitBreaker()
         self.adapter = adapter or self._build_adapter()
         self.executor = Executor(self.adapter, self.ledger, self.breaker, clock=self.clock)
+        # subscribed after the executor: runs once the automatic rollback has happened
+        self.breaker.subscribe(self._on_breaker_trip)
 
         self._restore_state()
 
@@ -369,27 +419,110 @@ class AegisService:
         return signer
 
     def reload_trusted_keys(self) -> dict[str, list[str]]:
-        """(Re)load trusted public keys from disk into the live key rings."""
-        rings = {"policy": self.policy_keyring, "ioc": self.ioc_keyring, "ledger": self.ledger_keyring}
+        """(Re)load trusted public keys from disk into the live key rings.
+
+        Revocations persisted by :meth:`revoke_key` are applied first, so a revoked
+        key stays distrusted across restarts even if its public key file reappears.
+        """
+        rings = self._rings()
         out: dict[str, list[str]] = {}
+        bindings: dict[str, str] = {}
         for kind, ring in rings.items():
-            for pem in sorted((self.settings.trusted_dir / kind).glob("*.pem")):
+            revoked = self._revoked_key_ids(kind)
+            for key_id in revoked:
+                ring.revoke(key_id)
+            pems = [(pem, None) for pem in sorted((self.settings.trusted_dir / kind).glob("*.pem"))]
+            if kind == "policy":
+                # trusted/policy/<tenant_id>/<key_id>.pem: a key that may sign policies of that tenant only
+                for sub in sorted(p for p in (self.settings.trusted_dir / kind).iterdir() if p.is_dir()):
+                    pems += [(pem, sub.name) for pem in sorted(sub.glob("*.pem"))]
+            for pem, tenant in pems:
+                if pem.stem in revoked:
+                    continue
                 try:
                     ring.add(pem.stem, pem.read_bytes())
                 except (SigningKeyError, ValueError) as exc:
                     log.error("cannot trust %s key %s: %s", kind, pem.name, exc)
+                    continue
+                if tenant is not None:
+                    bindings[pem.stem] = tenant
             out[kind] = ring.key_ids()
+        self._policy_key_tenant = bindings
         self.ledger_keyring.add_signer(self.ledger_signer)
         out["ledger"] = self.ledger_keyring.key_ids()
         return out
 
-    def trust_key(self, kind: Literal["policy", "ioc", "ledger"], key_id: str, public_pem: bytes) -> None:
+    def _revocation_file(self, kind: str) -> Path:
+        return self.settings.trusted_dir / kind / REVOCATION_FILE
+
+    def _revoked_key_ids(self, kind: str) -> set[str]:
+        path = self._revocation_file(kind)
+        if not path.is_file():
+            return set()
+        out: set[str] = set()
+        for line in path.read_text(encoding="utf-8").splitlines():
+            key_id = line.split("#", 1)[0].strip()
+            if key_id and _KEY_ID_RE.match(key_id):
+                out.add(key_id)
+        return out
+
+    def _rings(self) -> dict[str, KeyRing]:
+        return {"policy": self.policy_keyring, "ioc": self.ioc_keyring, "ledger": self.ledger_keyring,
+                "model": self.model_keyring}
+
+    def revoke_key(self, kind: Literal["policy", "ioc", "ledger", "model"], key_id: str, *, actor: str,
+                   reason: str) -> dict[str, Any]:
+        """Permanently distrust a signing key (compromise response, spec section 15).
+
+        The revocation takes effect immediately in the live key ring, is persisted in
+        ``<trusted>/<kind>/revoked.txt`` (honored on every restart, before any public
+        key is loaded) and is written to every tenant's ledger. Policies and IOC
+        bundles signed by the key stop verifying at once: an active IOC bundle signed
+        by a revoked key is deactivated (SENTINEL falls back to model + abstain).
+        The deployment's own active ledger signing key cannot be revoked here; rotate
+        it first (``AEGIS_LEDGER_KEY_ID`` + restart), then revoke the old id.
+        """
+        if kind not in KEY_KINDS:
+            raise InvalidInputError(f"unknown key kind {kind!r}")
+        if not _KEY_ID_RE.match(key_id or ""):
+            raise InvalidInputError("invalid key id")
+        if not reason or not reason.strip():
+            raise InvalidInputError("a revocation reason is required")
+        if kind == "ledger" and key_id == self.ledger_signer.key_id:
+            raise ConflictError("the active ledger signing key cannot be revoked; rotate it first",
+                                failed=["active_ledger_key"])
+        ring = self._rings()[kind]
+        with self._state_lock:
+            ring.revoke(key_id)
+            if key_id not in self._revoked_key_ids(kind):
+                path = self._revocation_file(kind)
+                with path.open("a", encoding="utf-8") as fh:
+                    fh.write(f"{key_id}  # revoked {self.clock().isoformat()} by {actor}\n")
+            deactivated: list[str] = []
+            if kind == "ioc":
+                for tenant_id, bundle in list(self._bundles.items()):
+                    if bundle.signer_key_id == key_id:
+                        del self._bundles[tenant_id]
+                        sentinel = self._sentinels.get(tenant_id)
+                        if sentinel is not None:
+                            sentinel.bundle = None
+                        deactivated.append(tenant_id)
+            payload = {"event": "key_revoked", "kind": kind, "key_id": key_id, "actor": actor,
+                       "reason": reason.strip()[:2000]}
+            for tenant_id in self.ledger.tenants():
+                self.ledger.append(tenant_id, CONFIG_ENTRY, f"key:{kind}:{key_id}"[:128],
+                                   {**payload, "ioc_bundle_deactivated": tenant_id in deactivated})
+        log.warning("%s key %s revoked by %s", kind, key_id, actor)
+        return {"kind": kind, "key_id": key_id, "revoked": ring.revoked_ids(),
+                "ioc_bundles_deactivated": deactivated}
+
+    def trust_key(self, kind: Literal["policy", "ioc", "ledger", "model"], key_id: str, public_pem: bytes) -> None:
         """Install a trusted public key on disk and in the live key ring (CLI / operator use)."""
         if kind not in KEY_KINDS:
             raise InvalidInputError(f"unknown key kind {kind!r}")
         if not _KEY_ID_RE.match(key_id):
             raise InvalidInputError("invalid key id")
-        ring = {"policy": self.policy_keyring, "ioc": self.ioc_keyring, "ledger": self.ledger_keyring}[kind]
+        ring = self._rings()[kind]
         try:
             ring.add(key_id, public_pem)
         except (SigningKeyError, ValueError) as exc:
@@ -399,7 +532,7 @@ class AegisService:
     def _load_model(self) -> TrainedModel | None:
         directory = self.settings.model_dir or default_model_dir()
         try:
-            model = load_model(directory, keyring=self.ledger_keyring if self.settings.model_require_signature
+            model = load_model(directory, keyring=self.model_keyring if self.settings.model_require_signature
                                else None, require_signature=self.settings.model_require_signature)
         except Exception as exc:  # missing or tampered model => rules + abstain only (safe)
             log.error("detection model not loaded from %s (%s): running rules-only with abstain",
@@ -440,7 +573,7 @@ class AegisService:
         """Rebuild in-memory views (sources, bundles, topology, live executions) from storage."""
         with self.sf() as s:
             rows = list(s.execute(select(DocRow.kind, DocRow.tenant_id, DocRow.body).where(
-                DocRow.kind.in_(["SourceRecord", "IocBundleRecord", "TopologyRecord"]))))
+                DocRow.kind.in_(["SourceRecord", "IocBundleRecord", "TopologyRecord", "LabContextRecord"]))))
         for kind, tenant_id, body in rows:
             try:
                 if kind == "SourceRecord":
@@ -449,8 +582,15 @@ class AegisService:
                     self._bundles[tenant_id] = load_bundle(body["bundle"], self.ioc_keyring)
                 elif kind == "TopologyRecord":
                     self._topologies[tenant_id] = parse_topology(body["topology"])
+                elif kind == "LabContextRecord":
+                    rec = LabContextRecord.model_validate(body)
+                    self._lab[tenant_id] = LabContext(
+                        onsets={k: _aware(v) for k, v in rec.onsets.items()},
+                        ground_truth={(ent, day): label for ent, day, label in rec.ground_truth},
+                        source=rec.source, period=ReportPeriod(_aware(rec.period_start), _aware(rec.period_end)))
             except (BundleError, TopologyError, ValueError, KeyError) as exc:
                 log.error("cannot restore %s for tenant %s: %s", kind, tenant_id, exc)
+        self._restore_detection_state()
         for tenant_id in self.ledger.tenants():
             try:
                 self.executor.recover(tenant_id)
@@ -490,7 +630,8 @@ class AegisService:
     def register_source(self, tenant_id: str, actor: str, *, source_id: str, source_kind: SourceKind | str,
                         vantage: Vantage | str, collection_authorization_id: str, retention_days: int = 30,
                         format: str | None = None, entity_field: str = "auto",
-                        assume_utc_for_naive: bool = False) -> SourceConfig:
+                        assume_utc_for_naive: bool = False, subscriber_prefixes: Sequence[str] = (),
+                        flow_direction: str = "auto") -> SourceConfig:
         _check_tenant(tenant_id)
         if not _ID_RE.match(source_id or ""):
             raise InvalidInputError("source_id must match [A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
@@ -498,7 +639,9 @@ class AegisService:
             cfg = SourceConfig(tenant_id=tenant_id, source_id=source_id, source_kind=SourceKind(source_kind),
                                vantage=Vantage(vantage), collection_authorization_id=collection_authorization_id,
                                retention_days=retention_days, format=format, entity_field=entity_field,  # type: ignore[arg-type]
-                               assume_utc_for_naive=assume_utc_for_naive)
+                               assume_utc_for_naive=assume_utc_for_naive,
+                               subscriber_prefixes=tuple(subscriber_prefixes),
+                               flow_direction=flow_direction)  # type: ignore[arg-type]
         except ValueError as exc:
             raise InvalidInputError(f"invalid source: {exc}") from exc
         doc_id = f"{tenant_id}:{source_id}"
@@ -591,6 +734,9 @@ class AegisService:
         if not verify_model(policy, self.policy_keyring):
             raise InvalidInputError("policy signature does not verify against a trusted policy key",
                                     failed=["policy_signature_invalid"], code="signature_invalid")
+        if not self._policy_key_allowed(policy):
+            raise InvalidInputError("the policy signing key is bound to another tenant",
+                                    failed=["policy_key_tenant_mismatch"], code="signature_invalid")
         if not _ID_RE.match(policy.policy_id):
             raise InvalidInputError("invalid policy_id")
         with self._state_lock:
@@ -605,6 +751,11 @@ class AegisService:
                 "valid_until": policy.valid_until, "actor": actor})
             self.docs.put(policy)
         return policy
+
+    def _policy_key_allowed(self, policy: OperatorPolicy) -> bool:
+        """A key under ``trusted/policy/<tenant>/`` signs that tenant's policies only."""
+        bound = self._policy_key_tenant.get(policy.signer_key_id)
+        return bound is None or bound == policy.tenant_id
 
     def list_policies(self, tenant_id: str) -> list[dict[str, Any]]:
         now = self.clock()
@@ -626,15 +777,30 @@ class AegisService:
             p = self.docs.get(OperatorPolicy, tenant_id, policy_id)
             if p is None:
                 raise NotFoundError(f"policy {policy_id!r} not found")
+            current = self.authoritative_policy(tenant_id)
+            if current is not None and current.policy_id != p.policy_id:
+                raise ConflictError(f"policy {policy_id!r} is superseded by {current.policy_id!r}; the newest "
+                                    "valid signed policy is authoritative", failed=["policy_superseded"])
             return p
+        return self.authoritative_policy(tenant_id)
+
+    def authoritative_policy(self, tenant_id: str) -> OperatorPolicy | None:
+        """The tenant's single authoritative operator policy: the newest valid signed one.
+
+        "Newest" is the latest ``valid_from``; on a tie, the policy loaded last (ledger
+        order) wins. Mode never influences the choice, so issuing a newer *shadow*
+        policy always switches enforcement off, and the action type is not used
+        either: a newer policy that does not allow an action type withdraws it.
+        """
         now = self.clock()
         candidates = [p for p in self.docs.iter_all(OperatorPolicy, tenant_id)
-                      if verify_model(p, self.policy_keyring) and _aware(p.valid_from) <= now < _aware(p.valid_until)]
+                      if verify_model(p, self.policy_keyring) and self._policy_key_allowed(p)
+                      and _aware(p.valid_from) <= now < _aware(p.valid_until)]
         if not candidates:
             return None
-        # prefer a policy that covers the action type, then active mode, then the most recent
-        candidates.sort(key=lambda p: (action.action_type in p.allowed_actions, p.mode == "active",
-                                       _aware(p.valid_from)), reverse=True)
+        loaded_seq = {e.subject_id: e.seq for e in self.ledger.entries(tenant_id, entry_type=EntryType.POLICY)}
+        candidates.sort(key=lambda p: (_aware(p.valid_from), loaded_seq.get(p.policy_id, 0), p.mode == "shadow"),
+                        reverse=True)
         return candidates[0]
 
     # ------------------------------------------------------------------ ingest and detection
@@ -643,8 +809,9 @@ class AegisService:
         with self._state_lock:
             s = self._sentinels.get(tenant_id)
             if s is None:
+                # wall-clock created_at: alert latency in the PoV report is measured against it
                 s = Sentinel(self.model, self._bundles.get(tenant_id), self.evidence, tenant_id=tenant_id,
-                             authorized_collections=self._authorized_collections(tenant_id))
+                             authorized_collections=self._authorized_collections(tenant_id), clock=self.clock)
                 self._sentinels[tenant_id] = s
             return s
 
@@ -747,16 +914,65 @@ class AegisService:
         findings = sentinel.process_batch(events)
         if flush_at is not None:
             findings += sentinel.flush(flush_at)
+        if self.settings.detection_journal and (events or flush_at is not None):
+            self._journal(tenant_id, events, flush_at)
         opened: list[str] = []
         for f in findings:
             self.docs.put(f)
             if f.verdict in ALERT_VERDICTS:
                 try:
                     case = self.cases.open_case(f)
-                    opened.append(case.case_id)
+                    if case.finding_ids and case.finding_ids[0] == f.finding_id and case.case_id not in opened:
+                        opened.append(case.case_id)  # a new incident (otherwise attached to the open case)
                 except (GuardError, ValueError) as exc:  # pragma: no cover - defensive
                     log.error("could not open case for finding %s: %s", f.finding_id, exc)
         return findings, opened
+
+    #: journal span kept beyond the 24 h window: one hop plus lateness and margin
+    JOURNAL_MARGIN = timedelta(hours=2)
+
+    def _journal(self, tenant_id: str, events: list[ObservationEvent], flush_at: datetime | None) -> None:
+        rows: list[dict[str, Any]] = [{"tenant_id": tenant_id, "observed_at": _aware(e.observed_at), "kind": "event",
+                                       "body": e.model_dump_json()} for e in events]
+        if flush_at is not None:
+            rows.append({"tenant_id": tenant_id, "observed_at": _aware(flush_at), "kind": "flush",
+                         "body": _aware(flush_at).isoformat()})
+        latest = max(r["observed_at"] for r in rows)
+        keep = timedelta(seconds=self._sentinel(tenant_id).windows.window_s) + self.JOURNAL_MARGIN
+        with self.sf.begin() as s:
+            s.execute(insert(DetectionJournalRow), rows)
+            s.execute(delete(DetectionJournalRow).where(DetectionJournalRow.tenant_id == tenant_id,
+                                                        DetectionJournalRow.observed_at < latest - keep))
+
+    def _restore_detection_state(self) -> None:
+        """Rebuild each tenant's SENTINEL context from the detection journal and stored findings."""
+        with self.sf() as s:
+            tenants = sorted(set(s.scalars(select(DetectionJournalRow.tenant_id).distinct())))
+        for tenant_id in tenants:
+            try:
+                with self.sf() as s:
+                    rows = list(s.execute(select(DetectionJournalRow.kind, DetectionJournalRow.body,
+                                                 DetectionJournalRow.observed_at)
+                                          .where(DetectionJournalRow.tenant_id == tenant_id)
+                                          .order_by(DetectionJournalRow.id)))
+                if not rows:
+                    continue
+                items: list[ObservationEvent | datetime] = []
+                for kind, body, _obs in rows:
+                    if kind == "flush":
+                        items.append(_aware(datetime.fromisoformat(body)))
+                    else:
+                        items.append(ObservationEvent.model_validate_json(body))
+                start = min(_aware(r[2]) for r in rows)
+                sentinel = self._sentinel(tenant_id)
+                windows = sentinel.warm(items, complete_after=start)
+                recent = start - sentinel.suppress_for
+                seeded = sentinel.seed_suppression(
+                    f for f in self.docs.iter_all(Finding, tenant_id) if _aware(f.observed_window_end) >= recent)
+                log.info("restored detection context for tenant %s: %d journal records, %d windows, "
+                         "%d suppression keys", tenant_id, len(rows), windows, seeded)
+            except Exception as exc:  # never block startup; detection continues from a cold start
+                log.error("could not restore detection context for tenant %s: %s", tenant_id, exc)
 
     def flush_detection(self, tenant_id: str, until: datetime) -> IngestOutcome:
         """Close detection windows up to ``until`` (end of a backfill or an idle sensor)."""
@@ -1020,7 +1236,12 @@ class AegisService:
         if to_state in (CaseState.PROPOSED, CaseState.APPROVED, CaseState.EXECUTED, CaseState.ROLLED_BACK):
             raise InvalidInputError(f"{to_state.value} is reached through the actions workflow "
                                     "(authorize / approve / execute / rollback)", code="use_actions_workflow")
-        self.get_case(tenant_id, case_id)
+        case = self.get_case(tenant_id, case_id)
+        if case.state is CaseState.EXECUTED:
+            # leaving EXECUTED must remove the enforcement first: only rollback / expiry do that
+            raise ConflictError("an EXECUTED case leaves that state only through a rollback of its action "
+                                "(POST /actions/{id}/rollback) or the expiry sweep",
+                                failed=["use_rollback_for_executed_case"])
         try:
             return self.cases.transition(tenant_id, case_id, to_state, actor, reason)
         except GuardError as exc:
@@ -1091,6 +1312,19 @@ class AegisService:
                        targets: list[str], scope: dict[str, Any] | None = None, legal_basis: str | None = None,
                        expires_at: datetime | None = None, rollback_plan: str | None = None,
                        rollback_verified: bool = False) -> ProposedAction:
+        """Store a proposed action for a VERIFIED case.
+
+        Targets must be tied to the case: DNS / IP targets to an indicator of the
+        case's qualifying, integrity-verified evidence (or an address such an
+        indicator resolves to), device controls to a device the case is about. An
+        unlinked DNS / IP target needs ``scope["allow_unlinked_targets"] = True``,
+        which the signed policy must also approve, and always needs a human approver.
+
+        ``rollback_verified`` from the caller is ignored: it is set only when the
+        executor's adapter rehearses the apply + rollback successfully (ledger entry
+        ``rollback_rehearsal``) and a rollback plan is written.
+        """
+        del rollback_verified  # never trusted from the proposer; see the rehearsal below
         case = self.get_case(tenant_id, case_id)
         if case.state is not CaseState.VERIFIED:
             raise ConflictError("actions can only be proposed for VERIFIED cases",
@@ -1112,27 +1346,65 @@ class AegisService:
         now = self.clock()
         if expires_at is not None and _aware(expires_at) <= now:
             raise InvalidInputError("expires_at must be in the future")
+        plan = rollback_plan.strip() if isinstance(rollback_plan, str) and rollback_plan.strip() else None
         action = ProposedAction(tenant_id=tenant_id, case_id=case_id, action_type=atype, targets=clean,
                                 scope=dict(scope or {}), legal_basis=legal_basis,
                                 expires_at=_aware(expires_at) if expires_at else None,
-                                rollback_plan=rollback_plan, rollback_verified=bool(rollback_verified),
-                                created_by=actor, created_at=now)
+                                rollback_plan=plan, rollback_verified=False, created_by=actor, created_at=now)
+        if atype in (ActionType.DEVICE_QUARANTINE, ActionType.NOTIFY_SUBSCRIBER):
+            entities = self._case_entities(case)
+            stray = [t for t in clean if normalize_target(atype, t) not in entities]
+            if stray:
+                raise InvalidInputError("device controls may only target the device(s) of this case",
+                                        failed=["target_not_a_case_entity"])
+        else:
+            unlinked = [u.partition(":")[2] for u in self._run_simulation(action).unknowns
+                        if u.startswith("target_not_in_case_evidence:")]
+            if unlinked and action.scope.get("allow_unlinked_targets") is not True:
+                raise InvalidInputError(
+                    "target(s) not tied to this case's evidence: " + ", ".join(unlinked[:10])
+                    + " (set scope.allow_unlinked_targets, which the signed policy must approve)",
+                    failed=["target_not_in_case_evidence"])
+        rehearsal = self.executor.rehearse_rollback(action)
+        action = action.model_copy(update={"rollback_verified": bool(plan) and rehearsal.ok})
         self.ledger.append(tenant_id, EntryType.ACTION, action.action_id, {
             "event": "proposed", "action_id": action.action_id, "case_id": case_id,
             "action_type": atype.value, "targets": clean, "scope": action.scope, "legal_basis": legal_basis,
-            "expires_at": action.expires_at, "rollback_verified": action.rollback_verified, "actor": actor})
+            "expires_at": action.expires_at, "rollback_plan": plan,
+            "rollback_verified": action.rollback_verified, "rollback_rehearsal": rehearsal.method,
+            "actor": actor})
         self.docs.put(action)
         return action
 
+    def _live_actions_for_case(self, tenant_id: str, case_id: str) -> list[str]:
+        """Live (applied or dry-run) executions of the case's actions."""
+        executor = getattr(self, "executor", None)
+        if executor is None:
+            return []
+        out = []
+        for aid in executor.active():
+            a = self.docs.get(ProposedAction, tenant_id, aid)
+            if a is not None and a.case_id == case_id:
+                out.append(aid)
+        return out
+
     def _case_indicators(self, case: Case) -> list[str]:
-        evs = [e for e in (self.docs.get(Evidence, case.tenant_id, eid) for eid in case.evidence_ids)
-               if e is not None and e.supports]
-        return indicators_from_evidence(evs)
+        """Indicators of the case's qualifying, integrity-verified supporting evidence only."""
+        return indicators_from_evidence(self.cases.assess_evidence(case).qualifying)
+
+    def _case_entities(self, case: Case) -> set[str]:
+        out: set[str] = set()
+        for fid in case.finding_ids:
+            f = self.docs.get(Finding, case.tenant_id, fid)
+            if f is not None:
+                out.add(f.entity_pseudonym)
+        return out
 
     def _run_simulation(self, action: ProposedAction) -> MirrorResult:
         case = self.cases.get(action.tenant_id, action.case_id)
         return mirror_simulate(action, self._topologies.get(action.tenant_id), self.atlas, self.history,
-                               now=self.clock(), case_indicators=self._case_indicators(case) if case else ())
+                               now=self.clock(), case_indicators=self._case_indicators(case) if case else (),
+                               case_entities=self._case_entities(case) if case else set())
 
     def _simulate_for_agent(self, action: ProposedAction) -> MirrorResult:
         """Read-only simulator handed to the ORACLE response planner (nothing stored)."""
@@ -1140,44 +1412,100 @@ class AegisService:
 
     def simulate_action(self, tenant_id: str, actor: str, action_id: str) -> MirrorResult:
         action = self.get_action(tenant_id, action_id)
+        return self._simulate_and_record(tenant_id, actor, action)
+
+    def _simulate_and_record(self, tenant_id: str, actor: str, action: ProposedAction) -> MirrorResult:
         result = self._run_simulation(action)
-        self.ledger.append(tenant_id, "mirror_simulation", action_id, {
-            "action_id": action_id, "case_id": action.case_id, "verdict": result.verdict.value,
+        self.ledger.append(tenant_id, "mirror_simulation", action.action_id, {
+            "action_id": action.action_id, "case_id": action.case_id, "verdict": result.verdict.value,
             "affected_entities": result.affected_entities, "shared_infrastructure": result.shared_infrastructure,
             "unknowns": result.unknowns, "requires_human_approval": result.requires_human_approval,
-            "actor": actor})
+            "mirror_sha256": sha256_hex(result), "actor": actor})
         self.docs.put(MirrorRecord(tenant_id=tenant_id,
-                                   action_id=action_id, result=result, simulated_by=actor))
+                                   action_id=action.action_id, result=result, simulated_by=actor))
         return result
 
     def _assess(self, tenant_id: str, actor: str, action: ProposedAction, case: Case,
-                policy_id: str | None
+                policy_id: str | None, *, fresh_mirror: bool = False
                 ) -> tuple[AuthorizationDecision, OperatorPolicy | None, MirrorResult | None, bool]:
-        mirror_rec = self.docs.get(MirrorRecord, tenant_id, action.action_id)
-        mirror = mirror_rec.result if mirror_rec else None
+        """Run ``authorize()`` now. With ``fresh_mirror`` MIRROR is re-run (and recorded)
+        instead of trusting the stored simulation document (approval and execution)."""
+        if fresh_mirror:
+            mirror: MirrorResult | None = self._simulate_and_record(tenant_id, actor, action)
+        else:
+            mirror_rec = self.docs.get(MirrorRecord, tenant_id, action.action_id)
+            mirror = mirror_rec.result if mirror_rec else None
         policy = self._select_policy(tenant_id, action, policy_id)
         quality_ok = (case.state in (CaseState.VERIFIED, CaseState.PROPOSED, CaseState.APPROVED)
                       and not self.cases.assess_evidence(case).verification_blockers())
-        decision = mirror_authorize(action, policy, self.policy_keyring, mirror, quality_ok, now=self.clock())
+        # the rollback rehearsal must be backed by a signed ledger record, not just the document flag
+        checked = action
+        if action.rollback_verified and (
+                self._signed_entry(tenant_id, action.action_id, ROLLBACK_REHEARSAL_ENTRY,
+                                   lambda p: p.get("ok") is True and p.get("action_id") == action.action_id) is None
+                or self._signed_entry(tenant_id, action.action_id, EntryType.ACTION,
+                                      lambda p: p.get("event") == "proposed"
+                                      and p.get("rollback_verified") is True) is None):
+            checked = action.model_copy(update={"rollback_verified": False})
+        decision = mirror_authorize(checked, policy, self.policy_keyring, mirror, quality_ok, now=self.clock())
         self.ledger.append(tenant_id, EntryType.AUTHORIZATION, action.action_id, {
             "action_id": action.action_id, "case_id": case.case_id, "allowed": decision.allowed,
             "failed_checks": decision.failed_checks, "policy_id": decision.policy_id,
             "requires_human_approval": decision.requires_human_approval, "evidence_quality_ok": quality_ok,
-            "mirror_verdict": mirror.verdict.value if mirror else None, "actor": actor})
+            "mirror_verdict": mirror.verdict.value if mirror else None,
+            "authorization_sha256": sha256_hex(decision), "actor": actor})
         self.docs.put(AuthorizationRecord(tenant_id=tenant_id,
                                           action_id=action.action_id, decision=decision, evaluated_by=actor,
                                           evidence_quality_ok=quality_ok))
         return decision, policy, mirror, quality_ok
 
+    def _signed_entry(self, tenant_id: str, subject_id: str, entry_type: str,
+                      predicate: Callable[[dict[str, Any]], bool]) -> Any | None:
+        """Latest ledger entry for ``subject_id`` of ``entry_type`` matching ``predicate`` whose
+        payload hash, entry hash and Ed25519 signature all verify against the trusted ledger keys."""
+        for e in reversed(self.ledger.entries(tenant_id, subject_id=subject_id, entry_type=entry_type)):
+            if not predicate(e.payload):
+                continue
+            if self._entry_authentic(e):
+                return e
+        return None
+
+    def _entry_authentic(self, e: Any) -> bool:
+        try:
+            if sha256_hex(e.payload) != e.payload_sha256:
+                return False
+            recomputed = compute_entry_hash(seq=e.seq, tenant_id=e.tenant_id, entry_type=e.entry_type,
+                                            subject_id=e.subject_id, payload_sha256=e.payload_sha256,
+                                            prev_hash=e.prev_hash, recorded_at=e.recorded_at,
+                                            signer_key_id=e.signer_key_id)
+        except (TypeError, ValueError):
+            return False
+        return (recomputed == e.entry_hash and bool(e.signature) and bool(e.signer_key_id)
+                and self.ledger_keyring.verify(e.signer_key_id, e.entry_hash.encode("ascii"), e.signature))
+
     def authorize_action(self, tenant_id: str, actor: str, action_id: str, *,
                          policy_id: str | None = None) -> dict[str, Any]:
-        """Run the deterministic authorization assessment; a VERIFIED case moves to PROPOSED."""
+        """Run the deterministic authorization assessment; a VERIFIED case moves to PROPOSED.
+
+        Once PROPOSED, the case is bound to the assessed action. Assessing a sibling
+        action before any approval re-binds the case to it (recorded in the ledger);
+        an approval and an execution always apply to the bound action only.
+        """
         action = self.get_action(tenant_id, action_id)
         case = self.get_case(tenant_id, action.case_id)
         if case.state not in (CaseState.VERIFIED, CaseState.PROPOSED):
             raise ConflictError("authorization is assessed for VERIFIED or PROPOSED cases",
                                 failed=[f"case_state:{case.state.value}"])
         decision, _, _, quality_ok = self._assess(tenant_id, actor, action, case, policy_id)
+        if case.state is CaseState.PROPOSED and CaseService.bound_action_id(case) != action_id:
+            # not yet approved: the case now points at this action (and only this one)
+            try:
+                case = self.cases.rebind_proposal(tenant_id, case.case_id, actor,
+                                                  f"proposal moved to action {action_id}; authorization "
+                                                  f"{'allowed' if decision.allowed else 'not allowed'}",
+                                                  authorization=decision)
+            except GuardError as exc:
+                raise ConflictError(str(exc), failed=exc.failed) from exc
         if case.state is CaseState.VERIFIED:
             try:
                 case = self.cases.transition(tenant_id, case.case_id, CaseState.PROPOSED, actor,
@@ -1189,39 +1517,99 @@ class AegisService:
         return {"decision": decision, "case_state": case.state.value, "evidence_quality_ok": quality_ok}
 
     def decide_action(self, tenant_id: str, actor: str, action_id: str, *, approve: bool, reason: str) -> Case:
-        """Approver decision. Approval needs an allowed assessment and a different person than the proposer."""
+        """Approver decision on the action the case is proposed for.
+
+        Approval re-runs MIRROR and the authorization now (nothing stored is trusted),
+        needs an allowed result and a different person than the proposer, and binds
+        the approval to this action id in the signed ledger.
+        """
         action = self.get_action(tenant_id, action_id)
         case = self.get_case(tenant_id, action.case_id)
         if case.state is not CaseState.PROPOSED:
             raise ConflictError("only PROPOSED cases can be approved or denied",
                                 failed=[f"case_state:{case.state.value}"])
+        if CaseService.bound_action_id(case) != action_id:
+            raise ConflictError("the case is proposed for another action", failed=["action_is_not_the_proposed_action"])
         if not reason or not reason.strip():
             raise InvalidInputError("a reason is required")
         if approve and actor.strip() == (action.created_by or "").strip():
             raise ForbiddenActionError("the proposer of an action cannot approve it (four-eyes)",
                                        failed=["approver_is_proposer"])
-        authz = self.docs.get(AuthorizationRecord, tenant_id, action_id)
+        if approve:
+            decision, _, _, _ = self._assess(tenant_id, actor, action, case, None, fresh_mirror=True)
+        else:
+            authz = self.docs.get(AuthorizationRecord, tenant_id, action_id)
+            decision = authz.decision if authz else None  # type: ignore[assignment]
         to_state = CaseState.APPROVED if approve else CaseState.DENIED
         try:
             case = self.cases.transition(tenant_id, case.case_id, to_state, actor, reason,
-                                         authorization=authz.decision if authz else None)
+                                         authorization=decision)
         except GuardError as exc:
             raise ConflictError(str(exc), failed=exc.failed) from exc
         self.ledger.append(tenant_id, EntryType.ACTION, action_id, {
             "event": "approved" if approve else "denied", "action_id": action_id, "case_id": case.case_id,
-            "actor": actor, "reason": reason.strip()[:2000]})
+            "actor": actor, "reason": reason.strip()[:2000],
+            "authorization_sha256": sha256_hex(decision) if decision is not None else None,
+            "case_transition_entry_hash": case.decisions[-1].ledger_entry_hash})
         return case
 
+    def _ledger_approval_ok(self, tenant_id: str, case: Case, action_id: str) -> bool:
+        """The approval of ``action_id`` must exist as a signed ``case_transition`` entry by a
+        human, matching the case document's latest approval decision."""
+        doc_decision = next((d for d in reversed(case.decisions)
+                             if d.to_state is CaseState.APPROVED and d.action_id == action_id), None)
+        if doc_decision is None:
+            return False
+        entry = self._signed_entry(
+            tenant_id, case.case_id, EntryType.CASE_TRANSITION,
+            lambda p: (p.get("to_state") == CaseState.APPROVED.value and p.get("action_id") == action_id
+                       and _is_human_actor(str(p.get("actor", "")))))
+        return (entry is not None and entry.entry_hash == doc_decision.ledger_entry_hash
+                and entry.payload.get("actor") == doc_decision.actor)
+
+    def _action_matches_ledger(self, tenant_id: str, action: ProposedAction) -> bool:
+        """The stored action document must be exactly what was proposed (signed ledger entry)."""
+        entry = self._signed_entry(tenant_id, action.action_id, EntryType.ACTION,
+                                   lambda p: p.get("event") == "proposed")
+        if entry is None:
+            return False
+        p = entry.payload
+        expires = action.expires_at.isoformat() if action.expires_at else None
+        recorded_exp = p.get("expires_at")
+        if isinstance(recorded_exp, str) and expires is not None:
+            try:
+                same_exp = _aware(datetime.fromisoformat(recorded_exp)) == _aware(action.expires_at)  # type: ignore[arg-type]
+            except ValueError:
+                same_exp = False
+        else:
+            same_exp = recorded_exp is None and expires is None
+        return (p.get("case_id") == action.case_id and p.get("action_type") == action.action_type.value
+                and p.get("targets") == list(action.targets) and p.get("scope") == action.scope
+                and p.get("legal_basis") == action.legal_basis and same_exp)
+
     def execute_action(self, tenant_id: str, actor: str, action_id: str, *, reason: str = "") -> dict[str, Any]:
-        """Execute an approved action. Every gate is re-evaluated now; any failure refuses."""
+        """Execute the approved action. Every gate is re-evaluated now; any failure refuses.
+
+        MIRROR is re-run here (the stored simulation document is not trusted) and the
+        human approval of *this* action must be present in the signed ledger.
+        """
         action = self.get_action(tenant_id, action_id)
         case = self.get_case(tenant_id, action.case_id)
         failed: list[str] = []
         if case.state is not CaseState.APPROVED:
             failed.append(f"case_state:{case.state.value}")
+        if not self.adapter.dry_run and tenant_id != self.settings.enforcement_tenant:
+            # the live adapter and its circuit breaker are deployment-wide: one tenant only
+            failed.append("tenant_not_authorized_for_live_enforcement")
         if actor.strip() == (action.created_by or "").strip():
             failed.append("approver_is_proposer")
-        decision, policy, mirror, _ = self._assess(tenant_id, actor, action, case, None)
+        if CaseService.approved_action_id(case) != action_id:
+            failed.append("action_not_approved")
+        elif not self._ledger_approval_ok(tenant_id, case, action_id):
+            failed.append("approval_not_in_signed_ledger")
+        if not self._action_matches_ledger(tenant_id, action):
+            failed.append("action_differs_from_signed_proposal")
+        decision, policy, mirror, _ = self._assess(tenant_id, actor, action, case, None, fresh_mirror=True)
         if not failed:
             failed += self.cases.check_transition(tenant_id, case.case_id, CaseState.EXECUTED, actor,
                                                   authorization=decision, mirror=mirror, policy=policy)
@@ -1260,8 +1648,115 @@ class AegisService:
             case = self.cases.transition(tenant_id, case.case_id, CaseState.ROLLED_BACK, actor, reason.strip())
         return {"execution": record, "case_state": case.state.value}
 
+    def _on_breaker_trip(self, action_id: str, reason: str) -> None:
+        """Keep the case in step with an automatic circuit-breaker rollback."""
+        records = self.executor.records(action_id)
+        rolled = [r for r in records if r.operation == "rollback" and r.status is ExecutionStatus.ROLLED_BACK]
+        if not rolled:
+            return  # the executor's own rollback failed; it stays live and is reported there
+        rec = rolled[-1]
+        case = self.cases.get(rec.tenant_id, rec.case_id)
+        if case is not None and case.state is CaseState.EXECUTED:
+            try:
+                self.cases.transition(rec.tenant_id, rec.case_id, CaseState.ROLLED_BACK, "system:circuit_breaker",
+                                      f"automatic rollback of action {action_id}: {reason}")
+            except GuardError as exc:  # pragma: no cover - defensive
+                log.error("could not mark case %s rolled back after breaker trip: %s", rec.case_id, exc)
+
+    def report_legit_traffic(self, tenant_id: str, action_id: str, *, requests: int, errors: int) -> dict[str, Any]:
+        """Feed a legitimate-traffic health sample for a live action (resolver / NOC telemetry).
+
+        When the error rate is abnormal the circuit breaker trips: the action is
+        rolled back automatically and its case moves to ROLLED_BACK.
+        """
+        self.get_action(tenant_id, action_id)
+        if action_id not in self.executor.active():
+            raise ConflictError("action is not live", failed=["no_live_execution"])
+        try:
+            tripped = self.executor.observe_legit_traffic(action_id, requests, errors)
+        except ValueError as exc:
+            raise InvalidInputError(str(exc)) from exc
+        return {"tripped": tripped, "breaker": self.breaker.state.value,
+                "live": action_id in self.executor.active()}
+
+    def breaker_status(self) -> dict[str, Any]:
+        """Circuit breaker state and its recent trips / resets (deployment-wide)."""
+        return {"state": self.breaker.state.value,
+                "trips": [{"action_id": t.action_id, "reason": t.reason, "error_rate": t.error_rate,
+                           "threshold": t.threshold, "requests": t.requests, "at": t.at}
+                          for t in self.breaker.trips[-20:]],
+                "resets": [{"actor": a, "reason": r, "at": at} for a, r, at in self.breaker.resets[-20:]]}
+
+    def reset_breaker(self, tenant_id: str, actor: str, reason: str) -> dict[str, Any]:
+        """Close a tripped circuit breaker (human only, reason required, ledgered)."""
+        if not reason or not reason.strip():
+            raise InvalidInputError("a reset reason is required")
+        if not _is_human_actor(actor):
+            raise ForbiddenActionError("only a human operator may reset the circuit breaker",
+                                       failed=["breaker_reset_requires_human"])
+        if not self.adapter.dry_run and tenant_id != self.settings.enforcement_tenant:
+            # the breaker guards the deployment-wide live adapter: only its tenant may close it
+            raise ForbiddenActionError("only the enforcement tenant may reset the live circuit breaker",
+                                       failed=["tenant_not_authorized_for_live_enforcement"])
+        previous = self.breaker.state.value
+        try:
+            self.breaker.reset(actor, reason.strip())
+        except (PermissionError, ValueError) as exc:
+            raise InvalidInputError(str(exc)) from exc
+        self.ledger.append(tenant_id, CONFIG_ENTRY, "circuit_breaker", {
+            "event": "circuit_breaker_reset", "previous_state": previous, "actor": actor,
+            "reason": reason.strip()[:2000]})
+        log.warning("circuit breaker reset by %s: %s", actor, reason.strip()[:200])
+        return self.breaker_status()
+
+    def refresh_revocations(self) -> list[str]:
+        """Apply key revocations written to ``revoked.txt`` by another process (``aegis keys
+        revoke``) to the live key rings; returns the newly revoked ``kind:key_id``."""
+        rings = self._rings()
+        newly: list[str] = []
+        for kind, ring in rings.items():
+            for key_id in sorted(self._revoked_key_ids(kind)):
+                if ring.is_revoked(key_id):
+                    continue
+                if kind == "ledger" and key_id == self.ledger_signer.key_id:
+                    log.error("ignoring revocation of the active ledger signing key %s; rotate it first", key_id)
+                    continue
+                ring.revoke(key_id)
+                newly.append(f"{kind}:{key_id}")
+                if kind == "ioc":
+                    with self._state_lock:
+                        for tenant_id, bundle in list(self._bundles.items()):
+                            if bundle.signer_key_id == key_id:
+                                del self._bundles[tenant_id]
+                                sentinel = self._sentinels.get(tenant_id)
+                                if sentinel is not None:
+                                    sentinel.bundle = None
+        if newly:
+            log.warning("applied key revocations from disk: %s", ", ".join(newly))
+        return newly
+
+    def activate_model(self, model: TrainedModel | None, *, actor: str, reason: str) -> None:
+        """Swap the shared detection model (normally called by the model registry after a
+        gated, human promotion). Every tenant's SENTINEL picks it up for new windows and
+        the change is written to every tenant's ledger."""
+        if not reason or not reason.strip():
+            raise InvalidInputError("a reason is required")
+        with self._state_lock:
+            previous = self.model.model_id if self.model is not None else None
+            self.model = model
+            for sentinel in self._sentinels.values():
+                sentinel.model = model
+                sentinel.anomaly = model.anomaly if model is not None else None
+            payload = {"event": "model_activated", "model_id": model.model_id if model else None,
+                       "model_version": model.version if model else None, "previous_model_id": previous,
+                       "actor": actor, "reason": reason.strip()[:2000]}
+            for tenant_id in self.ledger.tenants():
+                self.ledger.append(tenant_id, EntryType.MODEL, f"model:{payload['model_id']}"[:128], payload)
+
     def sweep_expired(self) -> list[str]:
-        """Roll back live actions past their expiry and expire stale approvals."""
+        """Roll back live actions past their expiry, expire stale approvals and apply key
+        revocations made on disk by the operator CLI."""
+        self.refresh_revocations()
         changed: list[str] = []
         for rec in self.executor.sweep_expired():
             if rec.status is ExecutionStatus.ROLLED_BACK:
@@ -1271,6 +1766,7 @@ class AegisService:
                                           f"action {rec.action_id} expired and was rolled back")
                     changed.append(rec.case_id)
         now = self.clock()
+        self._expire_findings(now)
         with self.sf() as s:
             rows = list(s.execute(select(DocRow.tenant_id, DocRow.body).where(DocRow.kind == "ProposedAction")))
         for tenant_id, body in rows:
@@ -1286,6 +1782,28 @@ class AegisService:
                 except GuardError as exc:  # pragma: no cover - defensive
                     log.error("could not expire case %s: %s", case.case_id, exc)
         return changed
+
+    def _expire_findings(self, now: datetime) -> int:
+        """Unresolved (candidate / triage) findings past ``expires_at`` become EXPIRED (ledgered)."""
+        with self.sf() as s:
+            rows = list(s.execute(select(DocRow.tenant_id, DocRow.body).where(DocRow.kind == "Finding")))
+        by_tenant: dict[str, list[Finding]] = defaultdict(list)
+        for tenant_id, body in rows:
+            if body.get("status") not in (FindingStatus.CANDIDATE.value, FindingStatus.TRIAGE.value):
+                continue
+            exp = body.get("expires_at")
+            if not exp or _aware(datetime.fromisoformat(str(exp).replace("Z", "+00:00"))) > now:
+                continue
+            by_tenant[tenant_id].append(Finding.model_validate(body))
+        n = 0
+        for tenant_id, fs in by_tenant.items():
+            for f in fs:
+                self.docs.put(f.model_copy(update={"status": FindingStatus.EXPIRED}))
+            self.ledger.append(tenant_id, "finding_status", f"expiry:{uuid.uuid4()}", {
+                "finding_ids": [f.finding_id for f in fs], "status": FindingStatus.EXPIRED.value,
+                "actor": "system:expiry"})
+            n += len(fs)
+        return n
 
     # ------------------------------------------------------------------ reports and metrics
 
@@ -1303,7 +1821,40 @@ class AegisService:
         return ReportPeriod(start, max(now, start + timedelta(days=1)))
 
     def register_lab_context(self, tenant_id: str, ctx: LabContext) -> None:
+        """Mark ``tenant_id`` as a synthetic lab tenant (persisted) with its independent ground truth."""
         self._lab[tenant_id] = ctx
+        self.docs.put(LabContextRecord(
+            doc_id=f"{tenant_id}:lab", tenant_id=tenant_id, source=ctx.source, period_start=ctx.period.start,
+            period_end=ctx.period.end, onsets=dict(ctx.onsets),
+            ground_truth=[(ent, day, label) for (ent, day), label in sorted(ctx.ground_truth.items())]))
+
+    def is_lab_tenant(self, tenant_id: str) -> bool:
+        return tenant_id in self._lab
+
+    def set_report_inputs(self, tenant_id: str, actor: str, *, cost: dict[str, Any] | None = None,
+                          effort: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Store the operator's cost inputs and effort model for the PoV report (validated, ledgered)."""
+        from aegis.reports.inputs import AnalystEffortModel, CostInputs
+        try:
+            c = CostInputs.from_dict(cost or {})
+            e = AnalystEffortModel.from_dict(effort or {})
+        except (TypeError, ValueError) as exc:
+            raise InvalidInputError(f"invalid report inputs: {exc}") from exc
+        rec = ReportInputsRecord(doc_id=f"{tenant_id}:report-inputs", tenant_id=tenant_id,
+                                 cost=dict(cost or {}), effort=dict(effort or {}), updated_by=actor,
+                                 updated_at=self.clock())
+        self.ledger.append(tenant_id, CONFIG_ENTRY, "report-inputs", {
+            "event": "report_inputs_set", "cost": rec.cost, "effort": rec.effort, "actor": actor})
+        self.docs.put(rec)
+        return {"cost": c.__dict__, "effort": e.__dict__, "configured": c.configured}
+
+    def report_inputs(self, tenant_id: str) -> dict[str, Any]:
+        from aegis.reports.inputs import AnalystEffortModel, CostInputs
+        rec = self.docs.get(ReportInputsRecord, tenant_id, f"{tenant_id}:report-inputs")
+        c = CostInputs.from_dict(rec.cost) if rec else CostInputs()
+        e = AnalystEffortModel.from_dict(rec.effort) if rec else AnalystEffortModel()
+        return {"cost": c.__dict__, "effort": e.__dict__, "configured": c.configured,
+                "updated_by": rec.updated_by if rec else None, "updated_at": rec.updated_at if rec else None}
 
     def pov_report(self, tenant_id: str, *, start: datetime | None = None, end: datetime | None = None,
                    operator_name: str | None = None, false_alert_budget_per_10k: float | None = None,
@@ -1312,7 +1863,13 @@ class AegisService:
         lab = self._lab.get(tenant_id)
         kwargs: dict[str, Any] = {}
         if lab is not None:
-            kwargs = {"onsets": lab.onsets, "ground_truth": lab.ground_truth, "ground_truth_source": lab.source}
+            kwargs = {"onsets": lab.onsets, "ground_truth": lab.ground_truth, "ground_truth_source": lab.source,
+                      "synthetic": True}
+        inputs = self.docs.get(ReportInputsRecord, tenant_id, f"{tenant_id}:report-inputs")
+        if inputs is not None:
+            from aegis.reports.inputs import AnalystEffortModel, CostInputs
+            kwargs["cost"] = CostInputs.from_dict(inputs.cost)
+            kwargs["effort"] = AnalystEffortModel.from_dict(inputs.effort)
         try:
             pov = collect_pov_report(tenant_id, self.docs, self.ledger, period, keyring=self.ledger_keyring,
                                      coverage=self.coverage(tenant_id, period), operator_name=operator_name,
@@ -1390,6 +1947,11 @@ def _sqlite_pragmas(dbapi_conn: Any, _record: Any) -> None:
         cur.close()
 
 
+def _is_human_actor(actor: str) -> bool:
+    a = actor.strip().lower()
+    return bool(a) and not a.startswith("agent:") and not a.startswith("system")
+
+
 def _check_tenant(tenant_id: str) -> None:
     if not isinstance(tenant_id, str) or not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$", tenant_id):
         raise InvalidInputError("invalid tenant id")
@@ -1414,6 +1976,7 @@ def _write_secret(path: Path, data: bytes) -> None:
 __all__ = [
     "AEGIS_VERSION", "AegisService", "AuthorizationRecord", "ConflictError", "CoverageDayRow",
     "ForbiddenActionError", "IngestOutcome", "InvalidInputError", "IocBundleRecord", "LabContext",
-    "MirrorRecord", "NotFoundError", "OverloadedError", "Page", "ServiceError", "SourceRecord",
+    "LabContextRecord", "MirrorRecord", "NotFoundError", "OverloadedError", "Page", "ReportInputsRecord",
+    "ServiceError", "SourceRecord",
     "TopologyRecord",
 ]

@@ -3,6 +3,7 @@ import type {
   ActionType,
   ApiErrorBody,
   AuthConfig,
+  TokenResponse,
   AuthorizeResult,
   Case,
   CaseDetail,
@@ -74,6 +75,10 @@ export interface ClientOptions {
 }
 
 /** Thin typed wrapper over the AEGIS REST API. Every call carries the bearer token. */
+export type OidcGrant =
+  | { grant_type: "authorization_code"; code: string; code_verifier: string; redirect_uri: string }
+  | { grant_type: "refresh_token"; refresh_token: string };
+
 export class AegisClient {
   private readonly opts: ClientOptions;
 
@@ -130,6 +135,8 @@ export class AegisClient {
   authConfig = () => this.get<AuthConfig>("/auth/config");
   demoToken = (role: Role) => this.get<DemoToken>("/demo/token", { role });
   me = () => this.get<Me>("/me");
+  /** Relay an OIDC grant (authorization code + PKCE verifier, or refresh token) through the API. */
+  oidcToken = (grant: OidcGrant) => this.post<TokenResponse>("/auth/token", grant);
 
   // ---------------------------------------------------------------- overview / configuration
   metrics = () => this.get<MetricsSummary>("/metrics/summary");
@@ -199,7 +206,6 @@ export interface ProposeBody {
   legal_basis?: string | null;
   expires_in_hours?: number;
   rollback_plan?: string | null;
-  rollback_verified?: boolean;
 }
 
 /** One-line human message for an error, including failed checks when the server named them. */

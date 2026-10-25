@@ -18,19 +18,26 @@ from aegis.api.deps import ApiError, get_principal, require, service_of, setting
 from aegis.api.rbac import Permission, permissions_of
 from aegis.api.schemas import (
     AuthorizeIn,
+    BreakerResetIn,
     DecisionIn,
     EventsIn,
     ExecuteIn,
+    HealthIn,
     NoteIn,
     ProposeIn,
+    ReportInputsIn,
     ReviewIn,
     SourceIn,
+    TokenGrantIn,
     TransitionIn,
 )
 from aegis.contracts.models import CaseState
 from aegis.service import AegisService, Page
 
 router = APIRouter(prefix="/api/v1")
+
+#: console route that receives the authorization code (registered as redirect URI at the IdP)
+CONSOLE_CALLBACK_PATH = "/auth/callback"
 
 
 
@@ -86,12 +93,47 @@ def _aware(dt: datetime | None) -> datetime | None:
 
 @router.get("/auth/config", tags=["auth"])
 def auth_config(request: Request) -> dict[str, Any]:
-    """Public: how the console should obtain a token."""
+    """Public: how the console should obtain a token (browser sign-in when an OIDC client is set)."""
     s = settings_of(request)
+    login = request.app.state.oidc_login
+    oidc: dict[str, Any] | None = None
+    oidc_error: str | None = None
+    if login.enabled:
+        try:
+            oidc = login.public_config()
+        except AuthError as exc:
+            oidc_error = exc.reason
     return {"auth_mode": s.auth_mode, "oidc_issuer": s.oidc_issuer if s.auth_mode == "oidc" else None,
             "oidc_audience": s.oidc_audience if s.auth_mode == "oidc" else None,
+            "oidc_login": oidc, "oidc_login_error": oidc_error,
             "demo": s.auth_mode == "dev" and s.demo_tenant is not None,
             "roles": [r.value for r in ALL_ROLES]}
+
+
+@router.post("/auth/token", tags=["auth"])
+def auth_token(body: TokenGrantIn, request: Request) -> dict[str, Any]:
+    """Public: relay the console's authorization-code (PKCE) or refresh grant to the IdP.
+
+    The redirect URI must point at this console's own callback, so the relay cannot be
+    used to complete flows for another site. Rate-limited per client address.
+    """
+    login = request.app.state.oidc_login
+    if not login.enabled:
+        raise ApiError(404, "not_found", "not found")
+    client = request.client.host if request.client else "unknown"
+    ok, retry = request.app.state.ip_limiter.acquire(f"token:{client}")
+    if not ok:
+        request.app.state.metrics.rate_limited.inc(scope="auth_token")
+        raise ApiError(429, "rate_limited", "too many token requests",
+                       headers={"Retry-After": str(max(1, int(retry + 0.999)))})
+    if body.grant_type == "authorization_code":
+        expected = str(request.base_url).rstrip("/") + CONSOLE_CALLBACK_PATH
+        if (body.redirect_uri or "").rstrip("/") != expected:
+            raise ApiError(422, "invalid", "redirect_uri must be this console's callback")
+    try:
+        return login.exchange(body.model_dump(exclude_none=True))
+    except AuthError as exc:
+        raise ApiError(401 if exc.reason == "token_exchange_failed" else 502, exc.reason, exc.detail) from exc
 
 
 @router.get("/me", tags=["auth"])
@@ -421,6 +463,37 @@ def rollback_action(body: DecisionIn, request: Request, action_id: str = _id(),
     return out
 
 
+@router.post("/actions/{action_id}/health", tags=["actions"])
+def action_health(body: HealthIn, request: Request, action_id: str = _id(),
+                  principal: Principal = Depends(get_principal)) -> Any:
+    """Legitimate-traffic health sample for a live action (integration collectors or approvers).
+
+    An abnormal error rate trips the circuit breaker: the action is rolled back
+    automatically and its case moves to ROLLED_BACK.
+    """
+    perms = permissions_of(principal)
+    if Permission.INGEST not in perms and Permission.EXECUTE not in perms:
+        request.app.state.metrics.forbidden.inc(permission="ingest|execute")
+        request.state.denied_permission = "ingest|execute"
+        raise ApiError(403, "forbidden", "reporting action health requires permission 'ingest' or 'execute'")
+    out = _svc(request).report_legit_traffic(principal.tenant_id, action_id, requests=body.requests,
+                                             errors=body.errors)
+    if out["tripped"]:
+        request.app.state.metrics.actions.inc(step="breaker_trip", outcome="rolled_back")
+    return out
+
+
+@router.get("/enforcement/breaker", tags=["actions"])
+def breaker_status(request: Request, principal: Principal = Depends(R_READ)) -> Any:
+    return _svc(request).breaker_status()
+
+
+@router.post("/enforcement/breaker/reset", tags=["actions"])
+def breaker_reset(body: BreakerResetIn, request: Request, principal: Principal = Depends(R_EXECUTE)) -> Any:
+    """Close a tripped circuit breaker (approver; a human with a recorded reason)."""
+    return _svc(request).reset_breaker(principal.tenant_id, principal.actor, body.reason)
+
+
 # ============================================================================ reports and metrics
 
 
@@ -438,6 +511,18 @@ def pov_report(request: Request, start: datetime | None = None, end: datetime | 
     if format == "json":
         return JSONResponse(json.loads(json.dumps(out, default=str)))
     return HTMLResponse(str(out), headers={"Content-Disposition": 'inline; filename="aegis-pov-report.html"'})
+
+
+@router.get("/reports/inputs", tags=["reports"])
+def get_report_inputs(request: Request, principal: Principal = Depends(R_READ)) -> Any:
+    """Cost inputs and analyst effort model used by the PoV report."""
+    return _svc(request).report_inputs(principal.tenant_id)
+
+
+@router.put("/reports/inputs", tags=["reports"])
+def put_report_inputs(body: ReportInputsIn, request: Request, principal: Principal = Depends(R_CONFIGURE)) -> Any:
+    """Set the operator's cost inputs (license, infrastructure, monitored devices...) and effort model."""
+    return _svc(request).set_report_inputs(principal.tenant_id, principal.actor, cost=body.cost, effort=body.effort)
 
 
 @router.get("/metrics/summary", tags=["reports"])

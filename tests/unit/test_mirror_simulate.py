@@ -166,7 +166,8 @@ def test_invalid_ip_target_unsafe():
 # ------------------------------------------------------------------ DNS sinkhole
 
 def test_exact_sinkhole_of_cohosted_malicious_name_is_safe():
-    r = simulate(action(targets=["img.bad.example"]), topology(), None, history(), now=T0)
+    r = simulate(action(targets=["img.bad.example"]), topology(), None, history(), now=T0,
+                 case_indicators=["img.bad.example"])
     assert r.verdict is MirrorVerdict.SAFE
     assert r.legitimate_cotenants == []
     assert r.historic_daily_legit_flows == 0
@@ -182,7 +183,7 @@ def test_sinkhole_of_known_legit_service_unsafe():
 
 def test_wildcard_sinkhole_catches_legit_subdomain():
     act = action(targets=["tvbox.example"], scope={"include_subdomains": True})
-    r = simulate(act, topology(), None, history(), now=T0, case_indicators=["api.tvbox.example"])
+    r = simulate(act, topology(), None, history(), now=T0, case_indicators=["tvbox.example", "api.tvbox.example"])
     assert r.verdict is MirrorVerdict.UNSAFE
     assert r.legitimate_cotenants == ["fw.tvbox.example"]
     assert r.shared_infrastructure is True
@@ -330,3 +331,19 @@ def test_simulation_is_tenant_scoped(tmp_path):
     r = simulate(action(ActionType.IP_BLOCK, [C2_IP]), topology(), atlas, history(), now=T0,
                  case_indicators=[C2_DOMAIN])
     assert r.verdict is MirrorVerdict.SAFE
+
+
+def test_target_unrelated_to_case_on_shared_cdn_is_unsafe():
+    """An analyst cannot point a verified case at an arbitrary legitimate co-hosted name."""
+    r = simulate(action(targets=["img.bad.example"]), topology(), None, history(), now=T0,
+                 case_indicators=["c2.other-case.example"])
+    assert r.verdict is MirrorVerdict.UNSAFE
+    assert r.requires_human_approval
+    assert "unrelated_target_on_shared_infrastructure:img.bad.example" in r.rationale
+    assert "target_not_in_case_evidence:img.bad.example" in r.unknowns
+
+
+def test_target_without_case_link_always_needs_a_human():
+    r = simulate(action(ActionType.IP_BLOCK, [C2_IP]), topology(), None, history(), now=T0)
+    assert "target_not_in_case_evidence:" + C2_IP in r.unknowns
+    assert r.requires_human_approval

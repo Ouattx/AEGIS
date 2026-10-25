@@ -77,7 +77,7 @@ def test_shared_cdn_not_indiscriminately_blocked(world):
     assert w["rpz"].records(T0) == []
     # the precise alternative - sinkhole only the malicious name - goes through
     precise = action(targets=["img.tvsync-update.example"])
-    m2, d2, rec2 = _pipeline(w, precise)
+    m2, d2, rec2 = _pipeline(w, precise, case_indicators=["img.tvsync-update.example"])
     assert m2.verdict is MirrorVerdict.SAFE, m2.rationale
     assert d2.allowed
     assert rec2.status is ExecutionStatus.APPLIED

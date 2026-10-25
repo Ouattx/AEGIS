@@ -185,9 +185,22 @@ def test_open_case_refusals(env):
 
 
 def test_severity_mapping(env):
+    """Severity follows verification-grade evidence and threat class, not the score."""
     f = env.finding([env.ev("s")], verdict=Verdict.MALICIOUS)
-    f = f.model_copy(update={"score": 0.95})
+    f = f.model_copy(update={"score": 0.95, "component_scores": {"ioc": 0.9, "ioc_independent_origins": 2.0}})
     assert env.svc.open_case(f).severity == "critical"
+    f2 = env.finding([env.ev("s2")], verdict=Verdict.MALICIOUS)
+    f2 = f2.model_copy(update={"score": 0.99, "entity_pseudonym": "p_dev2",
+                               "component_scores": {"ioc": 0.9, "ioc_independent_origins": 1.0}})
+    assert env.svc.open_case(f2).severity == "high"
+    f3 = env.finding([env.ev("s3")], verdict=Verdict.SUSPICIOUS)
+    f3 = f3.model_copy(update={"score": 0.99, "label": "ddos_bot", "entity_pseudonym": "p_dev3",
+                               "component_scores": {"ioc": 0.0}})
+    assert env.svc.open_case(f3).severity == "medium"
+    f4 = env.finding([env.ev("s4")], verdict=Verdict.SUSPICIOUS)
+    f4 = f4.model_copy(update={"score": 0.99, "label": "dga_activity", "entity_pseudonym": "p_dev4",
+                               "component_scores": {"ioc": 0.0}})
+    assert env.svc.open_case(f4).severity == "low"
 
 
 # ----------------------------------------------------------------------------- basic transitions
@@ -501,3 +514,31 @@ def test_execution_fails_closed_without_keyring(tmp_path):
                            authorization=au, mirror=env.mirror(act), policy=env.policy())
     assert "policy_signature_invalid" in failed_checks(ei)
     env.engine.dispose()
+
+
+
+# ----------------------------------------------------------------------------- de-duplication / finding status
+
+def test_one_incident_one_case_and_finding_status_follows_the_case(env):
+    from aegis.contracts.models import FindingStatus
+    f1 = env.finding([env.ev("a")])
+    case = env.svc.open_case(f1)
+    f2 = env.finding([env.ev("b")]).model_copy(update={"label": "ddos_bot", "verdict": Verdict.MALICIOUS,
+                                                       "component_scores": {"ioc_independent_origins": 2.0}})
+    env.docs.put(f2)
+    same = env.svc.open_case(f2)
+    assert same.case_id == case.case_id and same.finding_ids == [f1.finding_id, f2.finding_id]
+    assert same.severity == "critical"  # escalates with the stronger finding
+    assert env.svc.open_case(f2).finding_ids == same.finding_ids  # idempotent
+    assert len(env.svc.list_cases(TEN)) == 1
+    attached = [e for e in env.ledger.entries(TEN, subject_id=case.case_id) if e.entry_type == "case_finding_attached"]
+    assert attached and attached[0].payload["finding_id"] == f2.finding_id
+    env.svc.transition(TEN, case.case_id, CaseState.TRIAGE, "alice", "look")
+    assert {env.docs.get(Finding, TEN, f.finding_id).status for f in (f1, f2)} == {FindingStatus.TRIAGE}
+    env.svc.transition(TEN, case.case_id, CaseState.INVESTIGATING, "alice", "dig")
+    env.svc.transition(TEN, case.case_id, CaseState.REJECTED, "alice", "benign IPTV")
+    assert {env.docs.get(Finding, TEN, f.finding_id).status for f in (f1, f2)} == {FindingStatus.REJECTED}
+    # a decided case does not absorb new findings: the next alert opens a fresh case
+    f3 = env.finding([env.ev("c")])
+    fresh = env.svc.open_case(f3)
+    assert fresh.case_id != case.case_id and fresh.finding_ids == [f3.finding_id]

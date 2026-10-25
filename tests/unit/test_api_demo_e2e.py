@@ -24,7 +24,7 @@ def demo(tmp_path_factory):
 def test_seed_summary(demo):
     svc, _, summary = demo
     assert summary.events > 10_000
-    assert summary.alerts >= 1 and summary.cases == summary.alerts
+    assert summary.alerts >= 1 and 1 <= summary.cases <= summary.alerts  # de-duplicated per device incident
     assert sum(summary.dispositions.values()) == summary.cases
     assert summary.dispositions["open"] == len(summary.open_case_ids) <= 3
     assert summary.period_start.hour == 0 and (summary.period_end - summary.period_start).days == 2
@@ -113,3 +113,43 @@ def _is_ip(v: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def test_demo_report_is_labelled_synthetic_on_every_surface(demo):
+    """The synthetic-demo banner does not depend on the in-memory lab context: a restarted
+    service (what `aegis report` uses) renders it too, with exact intervals and n."""
+    from aegis.service import AegisService
+
+    svc, client, _ = demo
+    j = client.get("/api/v1/reports/pov?format=json", headers=auth(svc, T, "viewer")).json()
+    assert j["synthetic"] is True and "SYNTHETIC LAB DEMO" in j["synthetic_notice"]
+    assert j["headline"].startswith("Synthetic lab demo")
+    assert "verified by analysts" not in j["headline"]
+    assert j["validation"]["recall_ci"] is not None and j["false_alerts"]["per_10k_ci_upper"] is not None
+    restarted = AegisService(svc.settings, load_default_model=False, use_env_llm=False)
+    try:
+        assert restarted.is_lab_tenant(T)
+        html = restarted.pov_report(T)
+        assert "Synthetic lab demo" in html and "simulated analyst" in html
+        assert "Verified by analysts" not in html
+        assert restarted.pov_report(T, fmt="json")["validation"] is not None
+    finally:
+        restarted.close()
+
+
+def test_report_inputs_drive_the_cost_section(demo):
+    svc, client, _ = demo
+    admin = auth(svc, T, "admin")
+    bad = client.put("/api/v1/reports/inputs", json={"cost": {"bogus": 1}}, headers=admin)
+    assert bad.status_code == 422
+    r = client.put("/api/v1/reports/inputs", headers=admin, json={
+        "cost": {"license_monthly": 2500, "infrastructure_monthly": 400, "monitored_devices": 50_000}})
+    assert r.status_code == 200 and r.json()["configured"] is True
+    assert client.put("/api/v1/reports/inputs", json={}, headers=auth(svc, T, "analyst")).status_code == 403
+    j = client.get("/api/v1/reports/pov?format=json", headers=auth(svc, T, "viewer")).json()
+    assert j["cost"]["operator_inputs_configured"] is True and j["cost"]["monitored_devices"] == 50_000
+    assert j["cost"]["per_1000_devices_month"] is not None and j["cost"]["per_incident"] is not None
+    assert any("per 1,000 monitored device-months" in line for line in j["summary"])
+    client.put("/api/v1/reports/inputs", json={}, headers=admin)  # back to defaults for other tests
+    j = client.get("/api/v1/reports/pov?format=json", headers=auth(svc, T, "viewer")).json()
+    assert not any("USD" in line for line in j["summary"])  # unconfigured: no cost in the headline summary

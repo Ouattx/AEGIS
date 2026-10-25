@@ -34,6 +34,7 @@ from aegis.mirror.base import (
     AdapterError,
     AdapterResult,
     EnforcementAdapter,
+    RollbackRehearsal,
     action_summary,
     normalized_targets,
 )
@@ -115,6 +116,34 @@ class WebhookAdapter(EnforcementAdapter):
         reply, delivery = self._deliver("revert", action, now, prior_state)
         return AdapterResult(adapter=self.name, operation="revert",
                              details={"delivery_id": delivery, "response": reply})
+
+    def rehearse_rollback(self, action: ProposedAction, *, now: datetime) -> RollbackRehearsal:
+        """Build and sign both the apply and the revert request locally (nothing is sent).
+
+        The receiver's own revert behaviour cannot be exercised without changing the
+        enforcement point, so this proves only that both requests are well formed,
+        target-valid and authenticated; the ledger records the method so the claim
+        is never overstated.
+        """
+        checks: dict[str, bool] = {}
+        try:
+            self.check_supported(action)
+            normalized_targets(action)
+        except AdapterError as exc:
+            return RollbackRehearsal(ok=False, method="webhook_payload_rehearsal", detail=str(exc))
+        ts = int(time.time())
+        for op in ("apply", "revert"):
+            doc = {"event": f"aegis.enforcement.{op}", "delivery_id": "rehearsal", "sent_at": now.isoformat(),
+                   "tenant_id": action.tenant_id, "action": action_summary(action)}
+            if op == "revert":
+                doc["prior_state"] = {"remote": {}, "apply_delivery_id": "rehearsal"}
+            body = canonical_bytes(doc)
+            sig = sign_webhook(self._secret, ts, body)
+            checks[f"{op}_request_signed"] = verify_webhook_signature(self._secret, ts, body, sig, now=ts)
+        ok = all(checks.values())
+        return RollbackRehearsal(ok=ok, method="webhook_payload_rehearsal", checks=checks,
+                                 detail="apply and revert requests are well formed and signed; the receiver "
+                                        "must implement an idempotent revert")
 
     # ------------------------------------------------------------------ internals
     def _deliver(self, operation: str, action: ProposedAction, now: datetime,

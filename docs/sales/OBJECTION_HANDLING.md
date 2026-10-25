@@ -18,12 +18,12 @@ through marketplaces are widely reported by vendors and authorities in Europe; y
 subscriber base.
 
 **"What's the ROI?"**
-The PoV report measures analyst minutes per case, false alerts per 10,000 device-days and cost per protected
+The PoV report measures analyst minutes per case, false alerts per 10,000 device-days and cost per monitored
 device-month on your data. We'd rather compute the ROI with your numbers than quote one.
 
 **"Why pay for a pilot?"**
 Because it costs your team real hours too, and a paid pilot has a defined scope, deliverables and success
-criteria signed upfront. The fee can be credited towards the first year of production ([FOUNDER TO SET: credit terms]).
+criteria signed upfront. The fee can be credited towards the first year of production ([FOUNDER TO SET production_credit: credit terms]).
 
 ## Trust and accuracy
 

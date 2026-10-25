@@ -30,6 +30,13 @@
   </nav>
 </header>
 
+{% if p.synthetic %}
+<section class="callout critical" id="synthetic" role="alert">
+  <h3>Synthetic lab demo &middot; simulated analyst</h3>
+  <p>{{ p.synthetic_notice }}</p>
+</section>
+{% endif %}
+
 <section class="card" id="summary">
   <div class="eyebrow">Executive summary</div>
   <h2>{{ p.headline }}</h2>
@@ -40,12 +47,12 @@
     <div class="tile"><div class="label">Alerts</div>
       <div class="value">{{ p.alerts.alerts | num }}</div>
       <div class="note">on {{ p.alerts.alerted_devices | num }} devices &middot; {{ p.alerts.abstain_for_review | num }} held as ABSTAIN</div></div>
-    <div class="tile"><div class="label">Verified by analysts</div>
+    <div class="tile"><div class="label">{{ "Confirmed by simulated analyst" if p.synthetic else "Verified by analysts" }}</div>
       <div class="value">{{ p.dispositions.verified | num }}</div>
       <div class="note">device-days &middot; {{ p.dispositions.pending | num }} pending</div></div>
     <div class="tile"><div class="label">False alerts / 10k device-days</div>
       <div class="value">{{ p.false_alerts.per_10k | num(1) }}</div>
-      <div class="note">{% if p.false_alerts.unresolved_device_days %}upper bound {{ p.false_alerts.per_10k_upper | num(1) }}{% else %}all alerts resolved{% endif %}{% if p.false_alerts.budget_per_10k is not none %} &middot; budget {{ p.false_alerts.budget_per_10k | num(1) }}{% endif %}</div></div>
+      <div class="note">95% upper bound {{ p.false_alerts.per_10k_ci_upper | num(1) }} (n = {{ p.false_alerts.device_days | num if p.false_alerts.device_days is not none else "n/a" }}){% if p.false_alerts.unresolved_device_days %} &middot; {{ p.false_alerts.per_10k_upper | num(1) }} if all unresolved were false{% endif %}{% if p.false_alerts.budget_per_10k is not none %} &middot; budget {{ p.false_alerts.budget_per_10k | num(1) }}{% endif %}</div></div>
     <div class="tile"><div class="label">Enforcement executed</div>
       <div class="value">{{ p.attestation.live_executions | num }}</div>
       <div class="note">{% if p.attestation.status == "attested" %}<span class="badge good">attested zero</span>{% elif p.attestation.status == "unverifiable" %}<span class="badge critical">unverifiable</span>{% else %}<span class="badge warning">recorded</span>{% endif %}</div></div>
@@ -154,6 +161,7 @@
         <tr><td>Alerting device-days rejected by analysts</td><td class="r num">{{ p.false_alerts.rejected_device_days | num }}</td></tr>
         <tr><td>Alerting device-days unresolved</td><td class="r num">{{ p.false_alerts.unresolved_device_days | num }}</td></tr>
         <tr><td><b>False alerts per 10k device-days</b></td><td class="r num"><b>{{ p.false_alerts.per_10k | num(2) }}</b></td></tr>
+        <tr><td>95% exact upper confidence bound</td><td class="r num">{{ p.false_alerts.per_10k_ci_upper | num(2) }}</td></tr>
         <tr><td>Upper bound (unresolved counted as false)</td><td class="r num">{{ p.false_alerts.per_10k_upper | num(2) }}</td></tr>
         {% if p.false_alerts.budget_per_10k is not none %}<tr><td>Agreed false-alert budget</td><td class="r num">{{ p.false_alerts.budget_per_10k | num(2) }} {% if p.false_alerts.within_budget %}<span class="badge good">within</span>{% elif p.false_alerts.within_budget is not none %}<span class="badge critical">above</span>{% endif %}</td></tr>{% endif %}
       </tbody></table>
@@ -161,8 +169,8 @@
     <div>
       <h3>Timing</h3>
       <table><tbody>
-        <tr><td>Alert latency, median</td><td class="r num">{{ p.timing.alert_latency_p50_s | num(1) }} s</td></tr>
-        <tr><td>Alert latency, 95th percentile</td><td class="r num">{{ p.timing.alert_latency_p95_s | num(1) }} s</td></tr>
+        <tr><td>Alert latency, median</td><td class="r num">{{ p.timing.alert_latency_p50_s | num(3) }} s</td></tr>
+        <tr><td>Alert latency, 95th percentile</td><td class="r num">{{ p.timing.alert_latency_p95_s | num(3) }} s</td></tr>
         <tr><td>Confirmed onsets supplied / detected</td><td class="r num">{{ p.timing.onsets_supplied }} / {{ p.timing.onsets_detected }}</td></tr>
         <tr><td>Detection delay, median</td><td class="r num">{{ (p.timing.detection_delay_median_h | num(2)) ~ " h" if p.timing.detection_delay_median_h is not none else "not measurable" }}</td></tr>
         <tr><td>Detection delay, 90th percentile</td><td class="r num">{{ (p.timing.detection_delay_p90_h | num(2)) ~ " h" if p.timing.detection_delay_p90_h is not none else "not measurable" }}</td></tr>
@@ -195,10 +203,11 @@
 
 <section class="card" id="cost">
   <div class="eyebrow">5 &middot; Unit economics</div>
-  <h2>Cost per protected device-month</h2>
-  <p class="lede">Computed from the inputs below, all of which the operator can change. Period figures are scaled to a {{ "%.2f" | format(30.4375) }}-day month.</p>
+  <h2>Cost per 1,000 monitored devices and per incident</h2>
+  <p class="lede">Computed from the inputs below, all of which the operator can change. Period figures are scaled to a {{ "%.2f" | format(30.4375) }}-day month.{% if not p.cost.operator_inputs_configured %} No license, infrastructure or operating costs were entered: the figures below are estimated analyst time only and are not a total cost of ownership.{% endif %}</p>
   <div class="tiles">
-    <div class="tile"><div class="label">Per protected device-month</div><div class="value">{{ p.cost.per_device_month | money(p.cost.currency) }}</div><div class="note">{{ p.cost.protected_devices | num if p.cost.protected_devices is not none else "n/a" }} protected devices</div></div>
+    <div class="tile"><div class="label">Per 1,000 monitored device-months</div><div class="value">{{ p.cost.per_1000_devices_month | money(p.cost.currency) }}</div><div class="note">{{ p.cost.monitored_devices | num if p.cost.monitored_devices is not none else "n/a" }} monitored devices{% if not p.cost.operator_inputs_configured %} &middot; analyst time only{% endif %}</div></div>
+    <div class="tile"><div class="label">Per incident</div><div class="value">{{ p.cost.per_incident | money(p.cost.currency) }}</div><div class="note">{{ p.effort.cases | num }} incident(s) in the period</div></div>
     <div class="tile"><div class="label">Monthly total</div><div class="value">{{ p.cost.monthly_total | money(p.cost.currency) }}</div><div class="note">{{ "operator inputs applied" if p.cost.operator_inputs_configured else "analyst time only" }}</div></div>
   </div>
   <div class="tablewrap"><table>
@@ -257,9 +266,9 @@
   <h2>Comparison with independent labels</h2>
   <p class="lede">Source: {{ p.validation.source }}. Device-day level, same alerting rule as above.</p>
   <div class="tiles">
-    <div class="tile"><div class="label">Precision</div><div class="value">{{ p.validation.precision | num(3) }}</div></div>
-    <div class="tile"><div class="label">Recall</div><div class="value">{{ p.validation.recall | num(3) }}</div></div>
-    <div class="tile"><div class="label">False alerts / 10k device-days</div><div class="value">{{ p.validation.false_alerts_per_10k | num(1) }}</div></div>
+    <div class="tile"><div class="label">Precision</div><div class="value">{{ p.validation.precision | num(3) }}</div><div class="note">95% CI {% if p.validation.precision_ci %}{{ p.validation.precision_ci[0] | num(3) }} to {{ p.validation.precision_ci[1] | num(3) }}{% else %}n/a{% endif %} &middot; n = {{ (p.validation.tp + p.validation.fp) | num }}</div></div>
+    <div class="tile"><div class="label">Recall</div><div class="value">{{ p.validation.recall | num(3) }}</div><div class="note">95% CI {% if p.validation.recall_ci %}{{ p.validation.recall_ci[0] | num(3) }} to {{ p.validation.recall_ci[1] | num(3) }}{% else %}n/a{% endif %} &middot; n = {{ p.validation.positive_device_days | num }}</div></div>
+    <div class="tile"><div class="label">False alerts / 10k device-days</div><div class="value">{{ p.validation.false_alerts_per_10k | num(1) }}</div><div class="note">95% upper bound {{ p.validation.false_alerts_per_10k_ci_upper | num(1) }}</div></div>
     <div class="tile"><div class="label">Base rate</div><div class="value">{{ (p.validation.positive_device_days / p.validation.device_days) | pct(2) if p.validation.device_days else "n/a" }}</div><div class="note">{{ p.validation.positive_device_days | num }} positive of {{ p.validation.device_days | num }} device-days</div></div>
   </div>
   <table><thead><tr><th></th><th class="r">Alerted</th><th class="r">Not alerted</th></tr></thead><tbody>

@@ -79,7 +79,7 @@ def test_cost_inputs_validation_and_parsing():
     with pytest.raises(ValueError):
         CostInputs(currency="")
     with pytest.raises(ValueError):
-        CostInputs(protected_devices=-3)
+        CostInputs(monitored_devices=-3)
 
 
 def test_effort_model():

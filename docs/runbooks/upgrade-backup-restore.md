@@ -34,6 +34,12 @@ for t in <tenants>; do $C exec api aegis ledger verify --tenant "$t"; done
 restores PostgreSQL (`pg_restore --clean`), replaces the data volume, starts the API and waits until it is
 healthy. Telemetry ingested after the backup must be re-sent from the collectors' done directories.
 
+The signed ledger head anchor (`AEGIS_LEDGER_ANCHOR_PATH`) is deliberately *not* rolled back with the
+database: after restoring an older backup, `aegis ledger verify` reports the chain as shorter than its
+external anchor, which is exactly the signal a malicious rollback would give. For a planned restore, move the
+current anchor file aside (keep it with the incident record: it documents the entries the restore removed),
+restore, then verify; the next ledger write starts a fresh anchor.
+
 ## Upgrade
 
 Release notes state whether a release changes the database schema or configuration.

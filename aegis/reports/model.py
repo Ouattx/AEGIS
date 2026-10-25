@@ -43,6 +43,9 @@ class FalseAlertRates(_M):
     unresolved_device_days: int      # pending + inconclusive
     per_10k: float | None            # analyst-rejected alerts (measured)
     per_10k_upper: float | None      # if every unresolved alert proved false
+    #: one-sided 95% exact (Clopper-Pearson) upper bound of the measured rate, so a small
+    #: sample never reads as "0 false alerts"
+    per_10k_ci_upper: float | None = None
     per_device_class: dict[str, float | None] = Field(default_factory=dict)
     budget_per_10k: float | None = None
     within_budget: bool | None = None
@@ -155,11 +158,13 @@ class CostLine(_M):
 
 class CostSummary(_M):
     currency: str
-    protected_devices: int | None
+    monitored_devices: int | None
     lines: list[CostLine]
     monthly_total: float
     per_device_month: float | None
     operator_inputs_configured: bool
+    per_1000_devices_month: float | None = None
+    per_incident: float | None = None          # monthly total / incidents (cases) per month
 
 
 class Attestation(_M):
@@ -202,6 +207,10 @@ class Validation(_M):
     precision: float | None
     recall: float | None
     false_alerts_per_10k: float | None
+    #: exact (Clopper-Pearson) 95% intervals; small samples never read as certainty
+    precision_ci: tuple[float, float] | None = None
+    recall_ci: tuple[float, float] | None = None
+    false_alerts_per_10k_ci_upper: float | None = None
 
 
 class PovReport(_M):
@@ -232,6 +241,9 @@ class PovReport(_M):
     detector_versions: list[str]
     methodology: list[str]
     limitations: list[str]
+    #: True when the data or the dispositions are synthetic (lab corpus, simulated analyst)
+    synthetic: bool = False
+    synthetic_notice: str | None = None
     fingerprint: str = ""
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)

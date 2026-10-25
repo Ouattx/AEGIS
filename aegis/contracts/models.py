@@ -165,6 +165,9 @@ class Finding(Strict):
     explanation: str = ""
     created_at: datetime
     expires_at: datetime
+    #: wall-clock time the telemetry that closed the window was received (ingest time);
+    #: alert latency = created_at - max(observed_window_end, ingested_at)
+    ingested_at: datetime | None = None
 
 
 # ---------------------------------------------------------------- cases
@@ -193,6 +196,11 @@ class CaseDecision(Strict):
     reason: str
     at: datetime
     ledger_entry_hash: str | None = None
+    #: the proposed action this decision is about (PROPOSED / APPROVED / DENIED / EXECUTED);
+    #: an approval authorizes exactly this action and nothing else
+    action_id: str | None = None
+    #: sha256 of the authorization assessment the decision relied on
+    authorization_sha256: str | None = None
 
 
 class Case(Strict):

@@ -273,3 +273,15 @@ def test_indicators_from_evidence_variants():
             {"payload": {"indicator": ["b.example", 5, ""], "qname": "a.example"}},
             {"payload": {"indicator": "x" * 300}}]
     assert indicators_from_evidence(rows) == ["a.example", "192.0.2.1", "b.example"]
+
+
+def test_clip_text_cuts_at_word_boundaries_and_balances_brackets():
+    from aegis.oracle.tools import clip_text
+
+    s = ("indicator contact with source group grp:alpha (feed:lab_cti_alpha, feed:lab_cti_alpha_mirror; "
+         "contacted 203.0.113.53 at 08:00)")
+    out = clip_text(s, 80)
+    assert out.endswith("…") and len(out) <= 80
+    assert out.count("(") == out.count(")")
+    assert "lab_cti_alpha_mirro" not in out or "lab_cti_alpha_mirror" in out
+    assert clip_text("short text", 80) == "short text"

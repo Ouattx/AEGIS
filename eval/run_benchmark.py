@@ -73,7 +73,15 @@ DEFAULT_SCENARIOS: tuple[D.ScenarioSpec, ...] = (
     D.ScenarioSpec(name="low_prevalence", seed=4343, n_devices=400, days=3, malicious_fraction=0.01,
                    start="2026-10-22T00:00:00+00:00", tenant_id="bench-low",
                    description="typical residential segment (about 1% of devices compromised)"),
+    D.ScenarioSpec(name="degraded_telemetry", seed=4444, n_devices=300, days=3, malicious_fraction=0.03,
+                   start="2026-10-29T00:00:00+00:00", tenant_id="bench-degraded",
+                   flow_sampling=0.5, uniflow=True, dns_loss=0.3,
+                   description=("realistic exports: half the flow records sampled out, unidirectional NetFlow "
+                                "(no reply counters) and 30% of resolver records lost (about 3% compromised)")),
 )
+
+#: metrics that are proportions (exact binomial intervals apply)
+_PROPORTIONS = {"precision": ("tp", "fp"), "recall": ("tp", "fn"), "fpr": ("fp", "tn")}
 
 
 @dataclass
@@ -189,7 +197,7 @@ def evaluate_tables(table: DeviceDayTable, systems: Sequence[SystemScores], cfg:
     metrics = {}
     for s in systems:
         m = system_metrics(table, s, malicious_devices=malicious_devices)
-        m["ci95"] = boot.ci[s.name]
+        m["ci95"], m["ci95_method"] = honest_intervals(m, boot.ci[s.name])
         metrics[s.name] = m
     projections: dict[str, list[dict[str, Any]]] = {}
     for s in systems:
@@ -209,6 +217,60 @@ def evaluate_tables(table: DeviceDayTable, systems: Sequence[SystemScores], cfg:
     return {"device_days": len(table.keys), "positive_device_days": int(table.y.sum()), "base_rate": base,
             "devices": len(table.devices), "systems": metrics, "paired_differences_ci95": boot.diff_ci,
             "bootstrap_resamples": boot.resamples, "projections": projections}, boot
+
+
+def honest_intervals(m: dict[str, Any], boot_ci: dict[str, Any]
+                     ) -> tuple[dict[str, Any], dict[str, str]]:
+    """Per-metric 95% intervals that never collapse to a point.
+
+    A cluster bootstrap of a proportion observed at exactly 0 or 1 (or with every
+    resample equal) returns a degenerate interval such as [1.000, 1.000]. For those, the
+    exact Clopper-Pearson interval of the observed counts is reported instead (false
+    alerts per 10k use the exact interval of the false-positive rate).
+    """
+    from eval.stats import clopper_pearson
+
+    ci: dict[str, Any] = dict(boot_ci)
+    method: dict[str, str] = {k: "cluster bootstrap" for k in boot_ci}
+    for metric, (k_key, other) in _PROPORTIONS.items():
+        k, n = int(m[k_key]), int(m[k_key]) + int(m[other])
+        b = ci.get(metric)
+        point = m.get(metric)
+        degenerate = b is None or b[0] == b[1] or point in (0.0, 1.0)
+        if degenerate and n > 0:
+            ci[metric] = clopper_pearson(k, n)
+            method[metric] = "exact (Clopper-Pearson)"
+    fpr_ci = ci.get("fpr")
+    b = ci.get("false_alerts_per_10k")
+    if method.get("fpr", "").startswith("exact") or b is None or b[0] == b[1]:
+        if fpr_ci is not None:
+            ci["false_alerts_per_10k"] = (1e4 * fpr_ci[0], 1e4 * fpr_ci[1])
+            method["false_alerts_per_10k"] = "exact (Clopper-Pearson on the false-positive rate)"
+    return ci, method
+
+
+def fusion_gain(boot: BootstrapResult, candidate: str = "ensemble", baseline: str = "supervised"
+                ) -> dict[str, Any]:
+    """Does fusion add measurable detection accuracy over the supervised model alone?"""
+    from eval.stats import LOWER_IS_BETTER
+
+    diffs = boot.diff_ci.get(f"{candidate} - {baseline}") or {}
+    better = [k for k, c in diffs.items() if c is not None
+              and ((k in LOWER_IS_BETTER and c[1] < 0) or (k not in LOWER_IS_BETTER and c[0] > 0))]
+    worse = [k for k, c in diffs.items() if c is not None
+             and ((k in LOWER_IS_BETTER and c[0] > 0) or (k not in LOWER_IS_BETTER and c[1] < 0))]
+    if better:
+        statement = (f"The {candidate} shows a statistically supported gain over the {baseline} model alone in "
+                     + ", ".join(sorted(better)) + " (paired 95% intervals exclude zero).")
+    else:
+        statement = (f"No measurable detection gain of the {candidate} over the {baseline} model alone on this "
+                     "synthetic lab corpus: every paired 95% interval includes zero. The fusion's value here is "
+                     "evidence (signed indicator corroboration, explanations) and abstention, not accuracy; do not "
+                     "claim superior accuracy from fusion.")
+    if worse:
+        statement += " Worse with statistical support: " + ", ".join(sorted(worse)) + "."
+    return {"candidate": candidate, "baseline": baseline, "paired_differences_ci95": diffs,
+            "supported_gains": sorted(better), "supported_losses": sorted(worse), "statement": statement}
 
 
 def run_benchmark(cfg: BenchmarkConfig, *, log: Callable[[str], None] = lambda m: None,
@@ -283,6 +345,7 @@ def run_benchmark(cfg: BenchmarkConfig, *, log: Callable[[str], None] = lambda m
         "scenarios": scenario_results,
         "pooled": pooled,
         "release_gate": gate,
+        "fusion_gain": fusion_gain(boot_pooled, cfg.gate.candidate),
         "limitations": LIMITATIONS,
     }
     return _jsonable(results)
@@ -296,7 +359,11 @@ LIMITATIONS: list[str] = [
     "quoting any figure externally.",
     "The external-style baselines are representative re-implementations (static blocklist, threshold IDS), not "
     "named commercial products; no claim is made about any specific vendor.",
-    "Superiority claims are limited to the metrics and scenarios reported here, with the confidence intervals shown.",
+    "Superiority claims are limited to the metrics and scenarios reported here, with the confidence intervals shown. "
+    "The release gate compares the ensemble with the deterministic and external-style baselines; whether fusion adds "
+    "accuracy over the supervised model alone is reported separately (fusion gain) and must be quoted as measured.",
+    "Intervals: paired device-cluster bootstrap, replaced by exact Clopper-Pearson intervals wherever a proportion is "
+    "observed at 0 or 1 or the bootstrap collapses to a point, so a small sample never reads as certainty.",
     "Projected prevalence figures assume the measured recall and false-positive rate transfer to the new base rate; "
     "the exact-interval column shows the worst case consistent with the observed false-positive count.",
 ]

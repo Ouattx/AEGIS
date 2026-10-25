@@ -8,7 +8,6 @@ import { IconRefresh } from "../components/icons";
 import { CaseTitle } from "../components/domain";
 import { useTenantStatus } from "../components/status";
 import { Badge, ErrorBox, Hash, Kpi, Loading, Panel, SeverityBadge, StateBadge } from "../components/ui";
-import { OPEN_STATES } from "../lib/caseflow";
 import { fmtCompact, fmtDate, fmtNumber, fmtPct, fmtRelative, humanize, parseCaseTitle, shortDetector, shortPseudonym } from "../lib/format";
 import { bucketize, chooseBucketHours } from "../lib/series";
 
@@ -30,6 +29,25 @@ const STATE_COLORS: Partial<Record<CaseState, string>> = {
 
 const VERDICT_COLORS = { malicious: "#ef4444", suspicious: "#f59e0b", abstain: "#64748b", benign: "#22c55e" };
 const SEV_RANK: Record<string, number> = { critical: 3, high: 2, medium: 1, low: 0 };
+/** States that need someone to act, most urgent first (PROPOSED waits for an approver). */
+const ATTENTION_PRIORITY: Partial<Record<CaseState, number>> = { PROPOSED: 0, INVESTIGATING: 1, TRIAGE: 2, NEW: 3 };
+
+/** Cases needing attention: actionable states only, by state priority, then severity, then oldest first. */
+export function attentionQueue(items: Case[], limit = 8): Case[] {
+  return items
+    .filter((c) => ATTENTION_PRIORITY[c.state] !== undefined)
+    .sort(
+      (a, b) =>
+        (ATTENTION_PRIORITY[a.state] ?? 9) - (ATTENTION_PRIORITY[b.state] ?? 9) ||
+        (SEV_RANK[b.severity] ?? 0) - (SEV_RANK[a.severity] ?? 0) ||
+        a.updated_at.localeCompare(b.updated_at),
+    )
+    .slice(0, limit);
+}
+
+function fmtCi(ci: [number, number] | null | undefined): string {
+  return ci ? `${fmtPct(ci[0], 0)}–${fmtPct(ci[1], 0)}` : "n/a";
+}
 
 export function OverviewPage() {
   const client = useClient();
@@ -51,10 +69,7 @@ export function OverviewPage() {
     return { ...b, hours };
   }, [m, findings.data]);
 
-  const openCases = useMemo(() => {
-    const items = (cases.data?.items ?? []).filter((c: Case) => OPEN_STATES.has(c.state) || c.state === "VERIFIED" || c.state === "PROPOSED" || c.state === "APPROVED");
-    return items.sort((a, b) => (SEV_RANK[b.severity] ?? 0) - (SEV_RANK[a.severity] ?? 0) || b.updated_at.localeCompare(a.updated_at)).slice(0, 8);
-  }, [cases.data]);
+  const openCases = useMemo(() => attentionQueue(cases.data?.items ?? []), [cases.data]);
 
   if (metrics.error && !m) return <ErrorBox error={metrics.error} onRetry={metrics.reload} />;
   if (!m) return <Loading label="Loading tenant overview" />;
@@ -96,8 +111,14 @@ export function OverviewPage() {
         </div>
       </div>
 
+      {p?.synthetic && (
+        <div className="callout bad" role="alert" data-testid="synthetic-banner">
+          <b>Synthetic lab demo · simulated analyst.</b> {p.synthetic_notice}
+        </div>
+      )}
+
       <div className="grid g-6">
-        <Kpi testId="kpi-devices" label="Devices protected" value={fmtNumber(m.coverage.devices_observed)} accent="#38bdf8" foot={<>{fmtNumber(m.coverage.device_days)} device-days observed</>} />
+        <Kpi testId="kpi-devices" label="Devices monitored" value={fmtNumber(m.coverage.devices_observed)} accent="#38bdf8" foot={<>{fmtNumber(m.coverage.device_days)} device-days observed</>} />
         <Kpi
           testId="kpi-cases"
           label="Active cases"
@@ -117,8 +138,8 @@ export function OverviewPage() {
           accent="#22c55e"
           foot={
             fa ? (
-              <span title="Upper bound counts every unresolved alerted device-day as false">
-                upper bound {fa.per_10k_upper === null ? "n/a" : fmtNumber(fa.per_10k_upper, 1)} · {fa.rejected_device_days} rejected
+              <span title="95% exact upper confidence bound of the measured rate; n = observed device-days">
+                <b>≤ {fa.per_10k_ci_upper == null ? "n/a" : fmtNumber(fa.per_10k_ci_upper, 1)}</b> (95% upper bound, n = {fmtNumber(fa.device_days)}) · {fa.rejected_device_days} rejected
               </span>
             ) : pov.error ? (
               <span className="dim">report unavailable</span>
@@ -182,7 +203,7 @@ export function OverviewPage() {
           )}
           {trend && <div className="small dim" style={{ marginTop: 6 }}>{trend.hours}h buckets by detection window end (UTC)</div>}
         </Panel>
-        <Panel title="Case pipeline" right={<Link to="/cases">All cases →</Link>}>
+        <Panel title="Case pipeline (cases)" right={<Link to="/cases">All cases →</Link>}>
           <div className="row" style={{ gap: 18, alignItems: "center", flexWrap: "nowrap" }}>
             <Donut
               data={stateData}
@@ -242,15 +263,20 @@ export function OverviewPage() {
               <dd>
                 {p.timing.detection_delay_median_h ?? "n/a"} h / {p.timing.detection_delay_p90_h ?? "n/a"} h
               </dd>
-              <dt>Analyst dispositions</dt>
+              <dt>{p.synthetic ? "Simulated-analyst dispositions" : "Analyst dispositions"} (alerting device-days)</dt>
               <dd>
                 {p.dispositions.verified} verified · {p.dispositions.rejected} rejected · {p.dispositions.inconclusive} inconclusive · {p.dispositions.pending} pending
               </dd>
               {p.validation && (
                 <>
-                  <dt>Precision / recall</dt>
-                  <dd>
-                    {fmtPct(p.validation.precision, 1)} / {fmtPct(p.validation.recall, 1)} <span className="dim small">({p.validation.source})</span>
+                  <dt>
+                    Validation against independent labels {p.synthetic ? <Badge tone="warn">synthetic lab</Badge> : null}
+                  </dt>
+                  <dd data-testid="validation">
+                    precision 95% CI {fmtCi(p.validation.precision_ci)} (n = {p.validation.tp + p.validation.fp}) · recall 95% CI {fmtCi(p.validation.recall_ci)} (n ={" "}
+                    {p.validation.positive_device_days ?? p.validation.tp + p.validation.fn}) · base rate{" "}
+                    {p.validation.device_days ? fmtPct((p.validation.positive_device_days ?? 0) / p.validation.device_days, 1) : "n/a"}
+                    <div className="dim small">{p.validation.source}</div>
                   </dd>
                 </>
               )}

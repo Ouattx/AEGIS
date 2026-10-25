@@ -20,7 +20,10 @@ is appended (hash + ledger entry) and every finding gets a ``finding`` ledger en
 Repeated windows of an ongoing incident do not flood analysts: a finding for the
 same (entity, label) is re-emitted only after ``suppress_for`` or when the verdict
 escalates. Findings are stamped with event time (the window end) so lab runs and
-replays are reproducible; pass ``clock`` for wall-clock ``created_at``.
+replays are reproducible; pass ``clock`` for wall-clock ``created_at`` (the
+production service always does). ``Finding.ingested_at`` records when the telemetry
+that closed the window was received, so alert latency can be measured as
+``created_at - max(window end, ingested_at)`` even for late (backfilled) exports.
 
 Nothing here imports or calls an LLM.
 """
@@ -44,7 +47,14 @@ from aegis.provenance.ledger import EntryType
 from aegis.sentinel.anomaly import AnomalyScore, ChangePoint, ChangePointMonitor, RobustAnomalyModel
 from aegis.sentinel.explain import behavior_label, render_explanation
 from aegis.sentinel.features import WINDOW_SECONDS, ContactSummary, WindowStore
-from aegis.sentinel.fusion import DEFAULT_FUSION_POLICY, FusionPolicy, FusionResult, MLScore, fusion_policy
+from aegis.sentinel.fusion import (
+    DEFAULT_FUSION_POLICY,
+    FusionPolicy,
+    FusionResult,
+    MLScore,
+    format_probability,
+    fusion_policy,
+)
 from aegis.sentinel.model import TrainedModel
 from aegis.sentinel.rules import IOCBundle, ioc_match
 
@@ -139,6 +149,7 @@ class Sentinel:
         self._last_emit: dict[tuple[str, str, str], tuple[datetime, Verdict]] = {}
         self._streak: dict[tuple[str, str], tuple[datetime, int]] = {}
         self._last_prune: datetime | None = None
+        self._closing_ingested_at: datetime | None = None
         self.state_ttl = max(timedelta(days=7), suppress_for)
 
     # ------------------------------------------------------------------ identity
@@ -174,7 +185,10 @@ class Sentinel:
             self.stats.rejected_events += 1
             return []
         fvs = self.windows.update(event)
-        return self._handle(fvs) if fvs else []
+        if not fvs:
+            return []
+        self._closing_ingested_at = event.ingested_at
+        return self._handle(fvs)
 
     def process_batch(self, events: Iterable[ObservationEvent]) -> list[Finding]:
         out: list[Finding] = []
@@ -185,7 +199,54 @@ class Sentinel:
     def flush(self, now: datetime) -> list[Finding]:
         """Close all windows up to ``now`` (end of a replay, or an idle sensor)."""
         fvs = self.windows.flush(now, self.tenant_id)
-        return self._handle(fvs) if fvs else []
+        if not fvs:
+            return []
+        self._closing_ingested_at = self.clock() if self.clock is not None else now
+        return self._handle(fvs)
+
+    # ------------------------------------------------------------------ restart recovery
+    def warm(self, items: Iterable[ObservationEvent | datetime], *, complete_after: datetime | None = None) -> int:
+        """Rebuild in-memory detection context from telemetry that was already processed
+        before a restart, emitting nothing (no evidence, no findings, no ledger writes).
+
+        ``items`` replays the original order: events, and ``datetime`` flush markers
+        (the times :meth:`flush` was called). Window bins and watermarks are rebuilt
+        exactly; model persistence and change-point baselines learn only from windows
+        that lie entirely after ``complete_after`` (the start of the replayed span), so
+        partial windows never bias them. Returns the number of windows replayed.
+        """
+        span = timedelta(seconds=self.windows.window_s)
+        n = 0
+        for item in items:
+            if isinstance(item, datetime):
+                fvs = self.windows.flush(item, self.tenant_id)
+            else:
+                try:
+                    self.validate(item)
+                except EventRejected:
+                    continue
+                fvs = self.windows.update(item)
+            if not fvs:
+                continue
+            n += len(fvs)
+            ready = [fv for fv in fvs if complete_after is None or fv.window_end - span >= complete_after]
+            if ready:
+                self.evaluate(ready)
+        return n
+
+    def seed_suppression(self, findings: Iterable[Finding]) -> int:
+        """Restore repeat suppression from findings already emitted (e.g. read back from storage)."""
+        n = 0
+        for f in findings:
+            if f.verdict not in _RANK:
+                continue
+            key = (f.tenant_id, f.entity_pseudonym, f.label)
+            end = f.observed_window_end
+            prev = self._last_emit.get(key)
+            if prev is None or end > prev[0] or (end == prev[0] and _RANK[f.verdict] > _RANK[prev[1]]):
+                self._last_emit[key] = (end, f.verdict)
+                n += 1
+        return n
 
     def evaluate(self, fvs: Sequence[FeatureVector]) -> list[Decision]:
         """Run detectors A-D and fusion on windows (no emission, no persistence)."""
@@ -308,7 +369,7 @@ class Sentinel:
                 tenant_id=fv.tenant_id, kind=EvidenceKind.MODEL_SCORE,
                 origin_source=f"aegis:sentinel/model:{self.model.model_id}", source_independence_group=TELEMETRY_GROUP,
                 collected_at=now, authorization_id=auth,
-                summary=f"calibrated probability {d.ml.probability:.3f} ({self.model.model_id})",
+                summary=f"calibrated probability {format_probability(d.ml.probability)} ({self.model.model_id})",
                 payload={"entity_pseudonym": fv.entity_pseudonym, "window_end": fv.window_end.isoformat(),
                          "probability": d.ml.probability, "calibration_id": d.ml.calibration_id,
                          "model_id": self.model.model_id, "model_version": self.model.version,
@@ -343,7 +404,10 @@ class Sentinel:
             observed_window_start=window_start, observed_window_end=fv.window_end,
             evidence_ids=[e.evidence_id for e in supporting], counterevidence_ids=[e.evidence_id for e in counter],
             requires_review=res.requires_review, explanation=explanation, created_at=now,
-            expires_at=now + self.finding_ttl)
+            expires_at=now + self.finding_ttl,
+            ingested_at=(self._closing_ingested_at.astimezone(timezone.utc)
+                         if self._closing_ingested_at is not None and self._closing_ingested_at.tzinfo is not None
+                         else None))
         if self.evidence_store is not None:
             self.evidence_store.ledger.append(fv.tenant_id, EntryType.FINDING, finding.finding_id, {
                 "finding_id": finding.finding_id, "entity_pseudonym": finding.entity_pseudonym,

@@ -37,6 +37,12 @@
       <tr><td>{{ c.comparator | label }}</td><td><span class="badge {{ 'good' if c.passed else 'critical' }}">{{ "pass" if c.passed else "fail" }}</span></td><td class="small">{{ c.reasons | join("; ") }}</td></tr>
     {% endfor %}</tbody></table></div>
   <p class="small">{{ gate.note }}</p>
+  {% if r.fusion_gain is defined %}
+  <div class="callout {{ 'good' if r.fusion_gain.supported_gains else 'warning' }}">
+    <h3>Fusion gain over the supervised model alone</h3>
+    <p>{{ r.fusion_gain.statement }}</p>
+  </div>
+  {% endif %}
   <h3>Pooled results</h3>
   <div class="tablewrap"><table>
     <thead><tr><th>System</th><th class="r">Precision</th><th class="r">Recall</th><th class="r">PR-AUC</th><th class="r">False alerts / 10k device-days</th><th class="r">Devices detected</th></tr></thead>
@@ -96,8 +102,8 @@
     {% endfor %}</tbody></table></div>
   <div class="legend">{% for n in b.systems %}<span><i style="background:{{ colors[n] }}"></i>{{ n | label }}</span>{% endfor %}</div>
   <div class="grid2">
-    <figure>{{ ch.recall }}<figcaption>Recall with 95% bootstrap CI</figcaption></figure>
-    <figure>{{ ch.false_alerts_per_10k }}<figcaption>False alerts per 10k device-days with 95% bootstrap CI</figcaption></figure>
+    <figure>{{ ch.recall }}<figcaption>Recall with 95% CI (bootstrap, exact where degenerate)</figcaption></figure>
+    <figure>{{ ch.false_alerts_per_10k }}<figcaption>False alerts per 10k device-days with 95% CI (bootstrap, exact where degenerate)</figcaption></figure>
     <figure>{{ ch.precision }}<figcaption>Precision with 95% bootstrap CI</figcaption></figure>
     <figure>{{ ch.pr_auc }}<figcaption>PR-AUC with 95% bootstrap CI</figcaption></figure>
   </div>

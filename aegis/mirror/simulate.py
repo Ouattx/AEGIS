@@ -84,6 +84,7 @@ class _Acc:
     legit_indicators: dict[str, None] = field(default_factory=dict)  # for flow estimate
     footprint: dict[str, None] = field(default_factory=dict)         # for entity estimate
     notes: list[str] = field(default_factory=list)
+    unrelated: set[str] = field(default_factory=set)                 # targets with no case link
 
     def cotenant(self, name: str) -> None:
         self.cotenants[name] = None
@@ -91,6 +92,14 @@ class _Acc:
 
 def _utc(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def _is_ip(value: str) -> bool:
+    try:
+        normalize_target(ActionType.IP_BLOCK, value)
+        return True
+    except InvalidTargetError:
+        return False
 
 
 def _canon_indicator(value: str) -> str | None:
@@ -177,6 +186,7 @@ class _Graph:
 def simulate(action: ProposedAction, topology: TopologyView | None, graph: Any | None,
              history: TrafficHistory | None, *, now: datetime | None = None,
              case_indicators: Iterable[str] = (),
+             case_entities: Iterable[str] | None = None,
              max_affected_entities: int = DEFAULT_MAX_AFFECTED_ENTITIES) -> MirrorResult:
     """Simulate the impact of ``action``. Never raises for bad input: it fails closed.
 
@@ -188,6 +198,13 @@ def simulate(action: ProposedAction, topology: TopologyView | None, graph: Any |
                       in this set hosted on a target IP are not counted as legitimate
                       co-tenants. Names attributed to a malware family in ATLAS
                       (enforcement-eligible ``attributed_to`` edge) are excluded too.
+                      Targets themselves are *not* assumed malicious: a DNS / IP target
+                      that is neither a case indicator nor threat-attributed is treated
+                      as a legitimate name (its traffic counts as collateral, a human
+                      must approve) and is ``UNSAFE`` when it sits on shared
+                      infrastructure or is a known legitimate service.
+    ``case_entities`` pseudonyms of the devices the case is about; when given, a device
+                      or subscriber control on any other entity is ``UNSAFE``.
     """
     computed_at = _utc(now) if now is not None else datetime.now(timezone.utc)
     as_of = computed_at if now is not None else None
@@ -205,7 +222,9 @@ def simulate(action: ProposedAction, topology: TopologyView | None, graph: Any |
     if not action.targets:
         acc.unsafe.append("no_targets")
 
-    threat: set[str] = set(targets)
+    # only case evidence (and signed ATLAS attribution, checked per name) ties a name to
+    # the threat; the proposer's choice of target never does
+    threat: set[str] = set()
     for ind in case_indicators:
         c = _canon_indicator(ind)
         if c is not None:
@@ -213,6 +232,28 @@ def simulate(action: ProposedAction, topology: TopologyView | None, graph: Any |
 
     gfacade = _Graph(graph, action.tenant_id, as_of, acc) if graph is not None else None
     affected: int | None = None
+
+    if action.action_type in (ActionType.DNS_SINKHOLE, ActionType.IP_BLOCK):
+        kind = "ip" if action.action_type is ActionType.IP_BLOCK else "domain"
+        linked = set(threat)
+        if kind == "ip":
+            # an address that a case-indicator domain resolves to is tied to the case too
+            for dom in [x for x in threat if not _is_ip(x)]:
+                if topology is not None:
+                    linked.update(topology.resolve(dom))
+                if gfacade is not None:
+                    linked.update(gfacade.resolved_ips(dom))
+        for t in targets:
+            if t in linked or (gfacade is not None and gfacade.attributed_to_threat(t, kind)):
+                continue
+            acc.advisory.append(f"target_not_in_case_evidence:{t}")
+            acc.unrelated.add(t)
+            acc.legit_indicators[t] = None
+    elif case_entities is not None:
+        allowed = {e.strip() for e in case_entities if isinstance(e, str)}
+        for t in targets:
+            if t not in allowed:
+                acc.unsafe.append(f"target_not_a_case_entity:{t}")
 
     if action.action_type in (ActionType.DNS_SINKHOLE, ActionType.IP_BLOCK):
         if topology is None:
@@ -312,6 +353,8 @@ def _simulate_ip(ip: str, topology: TopologyView, g: _Graph | None, threat: set[
         legit.append(dn)
     if shared:
         acc.shared = True
+        if ip in acc.unrelated:
+            acc.unsafe.append(f"unrelated_target_on_shared_infrastructure:{ip}")
     if legit:
         acc.shared = acc.shared or len(legit) > 1
         for n in legit:
@@ -350,9 +393,14 @@ def _simulate_domain(dom: str, topology: TopologyView, g: _Graph | None, threat:
         host = topology.host(ip)
         if host is not None and _host_kind(host) in CRITICAL_HOST_KINDS:
             acc.unsafe.append(f"resolves_to_critical_infrastructure:{dom}")
-        if topology.is_shared(ip):
-            acc.notes.append(f"{dom} is hosted on shared infrastructure {ip}; "
-                             "a DNS-level control affects only the listed name(s)")
+        if topology.is_shared(ip) or (g is not None and g.is_shared(ip)):
+            if dom in acc.unrelated:
+                acc.shared = True
+                acc.cotenant(dom)
+                acc.unsafe.append(f"unrelated_target_on_shared_infrastructure:{dom}@{ip}")
+            else:
+                acc.notes.append(f"{dom} is hosted on shared infrastructure {ip}; "
+                                 "a DNS-level control affects only the listed name(s)")
 
     if g is not None:
         for dep in g.dependents(dom):
@@ -410,9 +458,10 @@ def _legit_flows(action: ProposedAction, history: TrafficHistory | None,
     """Upper bound of legitimate daily flows the control would disrupt."""
     if action.action_type in _SUBSCRIBER_FACING:
         return None
+    if acc.blocking and set(acc.legit_indicators) <= acc.unrelated:
+        return None  # footprint unknown and no known legitimate name in it: unknown, not zero
     if not acc.legit_indicators:
-        # footprint fully known and no legitimate name in it: a known zero
-        return None if acc.blocking else 0
+        return 0     # footprint fully known and no legitimate name in it: a known zero
     if history is None:
         return None
     total = 0.0

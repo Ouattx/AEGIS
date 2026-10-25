@@ -33,7 +33,7 @@ box, emulated BadBox/Vo1d-style malware), runs detection, opens cases and verifi
 shadow mode, so the action workflow ends in a refusal by design. A guided walkthrough is in
 [docs/sales/DEMO_SCRIPT.md](docs/sales/DEMO_SCRIPT.md).
 
-Without Docker: `pip install -e ".[dev]" && aegis demo` (Python 3.11+). The console is served on port 8000.
+Without Docker: `pip install -e ".[dev]" && aegis demo` (Python 3.11+). The console is served on http://127.0.0.1:8000 (loopback only: the demo hands out sign-in tokens without credentials; pass `--host` explicitly to expose it).
 
 ## Deploy a pilot
 

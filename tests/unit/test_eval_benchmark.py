@@ -227,3 +227,45 @@ def test_gate_config_flows_into_results(tmp_path):
     r = run_benchmark(c, freeze_datasets=True)
     assert [x["comparator"] for x in r["release_gate"]["comparisons"]] == ["threshold_heuristic"]
     assert r["release_gate"]["config"]["max_false_alert_regression_per_10k"] == 0.0
+
+
+def test_degenerate_bootstrap_intervals_are_replaced_by_exact_ones():
+    from eval.run_benchmark import honest_intervals
+
+    m = {"tp": 10, "fp": 0, "fn": 0, "tn": 990, "precision": 1.0, "recall": 1.0, "fpr": 0.0,
+         "false_alerts_per_10k": 0.0}
+    boot = {"precision": (1.0, 1.0), "recall": (1.0, 1.0), "fpr": (0.0, 0.0), "false_alerts_per_10k": (0.0, 0.0),
+            "pr_auc": (0.98, 1.0)}
+    ci, method = honest_intervals(m, boot)
+    assert ci["recall"][0] < 0.75 and ci["recall"][1] == 1.0          # exact: n = 10 positives
+    assert method["recall"].startswith("exact") and method["pr_auc"] == "cluster bootstrap"
+    assert ci["false_alerts_per_10k"][0] == 0.0 and ci["false_alerts_per_10k"][1] > 30
+    assert ci["pr_auc"] == (0.98, 1.0)
+
+
+def test_fusion_gain_states_plainly_when_there_is_none():
+    import numpy as np
+
+    from eval.run_benchmark import fusion_gain
+    from eval.stats import BootstrapResult
+
+    boot = BootstrapResult(ci={}, diff_ci={"ensemble - supervised": {"recall": (0.0, 0.0), "precision": (-0.01, 0.02),
+                                                                     "false_alerts_per_10k": (-3.0, 0.0)}},
+                           samples={}, resamples=10)
+    out = fusion_gain(boot)
+    assert out["supported_gains"] == [] and "No measurable detection gain" in out["statement"]
+    boot.diff_ci["ensemble - supervised"]["recall"] = (0.05, 0.2)
+    assert fusion_gain(boot)["supported_gains"] == ["recall"]
+    assert np is not None
+
+
+def test_degraded_scenario_spec_and_identity():
+    from eval import datasets as D
+
+    plain = D.ScenarioSpec(name="x", seed=1, n_devices=10, days=1, malicious_fraction=0.1,
+                           start="2026-10-01T00:00:00+00:00")
+    assert "flow_sampling" not in plain.identity() and not plain.degraded
+    hard = replace(plain, flow_sampling=0.5, uniflow=True, dns_loss=0.3)
+    assert hard.degraded and hard.identity()["uniflow"] is True
+    with pytest.raises(ValueError):
+        replace(plain, flow_sampling=0.0)

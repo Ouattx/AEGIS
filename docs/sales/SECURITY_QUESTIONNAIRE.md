@@ -2,20 +2,20 @@
 
 Answers for AEGIS OMEGA SHIELD v1 as deployed on the customer's premises with `deploy/docker-compose.yml`.
 They follow the usual sections of operator vendor-security questionnaires (SIG Lite / CAIQ style). Each answer
-points to the evidence. Items marked **[FOUNDER TO SET]** depend on company policies to be finalized before
+points to the evidence. Items marked **FOUNDER TO SET** (keyed, filled by `deploy/tools/render_sales_kit.py`) depend on company policies to be finalized before
 sending; never answer "yes" to a control that is not in place.
 
 ## 1. Company and governance
 
 | Question | Answer |
 |---|---|
-| Information security policy and owner | [FOUNDER TO SET: policy document, named owner] |
+| Information security policy and owner | [FOUNDER TO SET security_policy_owner: policy document, named owner] |
 | Certifications (ISO 27001, SOC 2, HDS, SecNumCloud) | None held for v1. The product is deployed in the customer's environment, under the customer's certifications. |
 | Vulnerability disclosure | Yes: [SECURITY.md](../../SECURITY.md), acknowledgement in 2 business days, fix targets by severity. |
 | Independent penetration test | Not yet performed on v1; planned before general availability; results shared under NDA when available. |
 | Sub-processors | None in the default deployment. Optional LLM provider only if the customer enables it. |
-| Staff screening and security training | [FOUNDER TO SET] |
-| Cyber insurance | [FOUNDER TO SET] |
+| Staff screening and security training | [FOUNDER TO SET staff_screening] |
+| Cyber insurance | [FOUNDER TO SET cyber_insurance] |
 
 ## 2. Hosting and data location
 
@@ -70,7 +70,7 @@ sending; never answer "yes" to a control that is not in place.
 |---|---|
 | SBOM | CycloneDX for the Python environment, the console and the container image, on every build; attached to releases. |
 | Signed artifacts | Release images signed with Sigstore cosign (keyless), with SBOM and build-provenance attestations; verification commands in INSTALL.md. |
-| Open-source licenses | Listed in the SBOM; no copyleft component is linked into the application code [FOUNDER TO SET: confirm with a license scan before sending]. |
+| Open-source licenses | Listed in the SBOM; no copyleft component is linked into the application code [FOUNDER TO SET license_scan: confirm with a license scan before sending]. |
 | Third-party components with known vulnerabilities | CI fails on known Python vulnerabilities and on high/critical vulnerabilities in shipped console packages. |
 
 ## 7. Enforcement safety (operator-specific)

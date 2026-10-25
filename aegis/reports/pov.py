@@ -9,7 +9,7 @@ SVG, no external assets) that an ISP security director can forward to a CISO:
   decision with its ledger entry hash);
 - false alerts per 10k device-days (measured from analyst dispositions, with an upper
   bound for unresolved alerts), detection delay and alert latency;
-- estimated analyst minutes per case (transparent effort model) and cost per protected
+- estimated analyst minutes per case (transparent effort model) and cost per monitored
   device-month from operator-configurable inputs;
 - a zero-enforcement attestation derived from the verified ledger, and the ledger
   integrity verification result;
@@ -54,6 +54,7 @@ from aegis.provenance.signing import KeyRing
 from aegis.provenance.snapshot import snapshot
 from aegis.reports import charts
 from aegis.reports.inputs import AnalystEffortModel, CostInputs, CoverageStats, ReportPeriod
+from aegis.reports.labels import display_label
 from aegis.reports.model import (
     AlertSummary,
     Attestation,
@@ -95,6 +96,19 @@ def device_day_of(f: Finding) -> tuple[str, date]:
     return f.entity_pseudonym, (f.observed_window_end - timedelta(microseconds=1)).date()
 
 
+def alert_latency_s(f: Finding) -> float:
+    """Seconds from the moment the alert could first have been raised to its creation.
+
+    That moment is the later of the window end and the time the telemetry that closed
+    the window was received (``ingested_at``), so a late export is not counted as
+    detector latency while a slow pipeline is.
+    """
+    ready = f.observed_window_end
+    if f.ingested_at is not None and f.ingested_at > ready:
+        ready = f.ingested_at
+    return max(0.0, (f.created_at - ready).total_seconds())
+
+
 def _quantile(values: Sequence[float], q: float) -> float | None:
     if not values:
         return None
@@ -106,6 +120,36 @@ def _quantile(values: Sequence[float], q: float) -> float | None:
 
 def _per_10k(n: int, d: int | None) -> float | None:
     return None if not d else 1e4 * n / d
+
+
+def clopper_pearson(k: int, n: int, alpha: float = 0.05) -> tuple[float, float] | None:
+    """Exact two-sided binomial interval for ``k`` successes in ``n`` trials (None when n = 0)."""
+    if n <= 0:
+        return None
+    from scipy.stats import beta
+
+    lo = 0.0 if k <= 0 else float(beta.ppf(alpha / 2, k, n - k + 1))
+    hi = 1.0 if k >= n else float(beta.ppf(1 - alpha / 2, k + 1, n - k))
+    return (round(lo, 4), round(hi, 4))
+
+
+def upper_bound_per_10k(k: int, n: int | None, alpha: float = 0.05) -> float | None:
+    """One-sided exact upper confidence bound of a rate, per 10k (None when n is unknown or 0)."""
+    if not n:
+        return None
+    from scipy.stats import beta
+
+    hi = 1.0 if k >= n else float(beta.ppf(1 - alpha, k + 1, n - k))
+    return round(1e4 * hi, 2)
+
+
+#: decision actors / reviewers that mark dispositions as simulated (lab demonstrations)
+SIMULATED_ACTOR_PREFIXES = ("analyst:lab-simulated", "analyst:lab", "analyst:simulated")
+
+
+def _is_simulated(actor: str | None) -> bool:
+    a = (actor or "").strip().lower()
+    return any(a.startswith(p) for p in SIMULATED_ACTOR_PREFIXES)
 
 
 def _case_disposition(case: Case | None) -> str:
@@ -168,7 +212,8 @@ def collect_pov_report(tenant_id: str, docstore: DocStore, ledger: Ledger,
                        ground_truth_source: str = "independent ground truth",
                        false_alert_budget_per_10k: float | None = None,
                        operator_name: str | None = None, generated_at: datetime | None = None,
-                       top_cases: int = 5, evidence_per_case: int = 12) -> PovReport:
+                       top_cases: int = 5, evidence_per_case: int = 12,
+                       synthetic: bool | None = None) -> PovReport:
     """Collect every metric of the PoV report for one tenant (all reads tenant-scoped).
 
     ``coverage`` is the observed population (see :class:`CoverageStats`); without it,
@@ -176,7 +221,9 @@ def collect_pov_report(tenant_id: str, docstore: DocStore, ledger: Ledger,
     pseudonyms to confirmed compromise onset times (red-team injection or analyst
     confirmation) for detection delay. ``ground_truth`` (device-day labels, lab or
     injected) adds an independent validation section. ``evidence_store`` is accepted
-    for API symmetry; integrity is checked directly against the ledger.
+    for API symmetry; integrity is checked directly against the ledger. ``synthetic``
+    forces the synthetic-demo banner; it is also raised automatically whenever any case
+    decision or review was made by a simulated analyst, whatever surface renders it.
     """
     del evidence_store  # integrity is verified in bulk against the ledger below
     per = ReportPeriod.coerce(period)
@@ -229,6 +276,7 @@ def collect_pov_report(tenant_id: str, docstore: DocStore, ledger: Ledger,
     fa = FalseAlertRates(
         device_days=device_days, rejected_device_days=rejected_dd, unresolved_device_days=unresolved_dd,
         per_10k=fa_rate, per_10k_upper=_per_10k(rejected_dd + unresolved_dd, device_days),
+        per_10k_ci_upper=upper_bound_per_10k(rejected_dd, device_days),
         per_device_class=per_class_fa, budget_per_10k=false_alert_budget_per_10k,
         within_budget=(None if false_alert_budget_per_10k is None or fa_rate is None
                        else fa_rate <= false_alert_budget_per_10k))
@@ -336,7 +384,7 @@ def collect_pov_report(tenant_id: str, docstore: DocStore, ledger: Ledger,
             snapshot_hash=c.snapshot_hash))
 
     # ------------------------------------------------------------- timing
-    latencies = [max(0.0, (f.created_at - f.observed_window_end).total_seconds()) for f in alerts]
+    latencies = [alert_latency_s(f) for f in alerts]
     first_alert: dict[str, datetime] = {}
     for f in alerts:
         if f.entity_pseudonym not in first_alert or f.observed_window_end < first_alert[f.entity_pseudonym]:
@@ -349,8 +397,8 @@ def collect_pov_report(tenant_id: str, docstore: DocStore, ledger: Ledger,
         if t1 is not None and t1 >= t0:
             delays.append((t1 - t0).total_seconds() / 3600.0)
     timing = DetectionTiming(
-        alert_latency_p50_s=_round(_quantile(latencies, 0.5), 1),
-        alert_latency_p95_s=_round(_quantile(latencies, 0.95), 1),
+        alert_latency_p50_s=_round(_quantile(latencies, 0.5), 3),
+        alert_latency_p95_s=_round(_quantile(latencies, 0.95), 3),
         onsets_supplied=len(onset_map), onsets_detected=len(delays),
         detection_delay_median_h=_round(_quantile(delays, 0.5), 2),
         detection_delay_p90_h=_round(_quantile(delays, 0.9), 2))
@@ -384,7 +432,7 @@ def collect_pov_report(tenant_id: str, docstore: DocStore, ledger: Ledger,
     scale = DAYS_PER_MONTH / per.days
     analyst_monthly = sum(est) / 60.0 * cost.analyst_hourly_rate * scale
     llm_monthly = investigations * cost.llm_cost_per_investigation * scale
-    protected = cost.protected_devices if cost.protected_devices is not None else (
+    monitored = cost.monitored_devices if cost.monitored_devices is not None else (
         coverage.devices_observed if coverage is not None else None)
     lines = [
         CostLine(item="AEGIS license / pilot fee", monthly=cost.license_monthly, basis="operator input"),
@@ -399,8 +447,11 @@ def collect_pov_report(tenant_id: str, docstore: DocStore, ledger: Ledger,
                        f", scaled to a month"),
     ]
     total = round(sum(line.monthly for line in lines), 2)
-    cost_summary = CostSummary(currency=cost.currency, protected_devices=protected, lines=lines, monthly_total=total,
-                               per_device_month=(round(total / protected, 4) if protected else None),
+    incidents_per_month = len(period_cases) * scale
+    cost_summary = CostSummary(currency=cost.currency, monitored_devices=monitored, lines=lines, monthly_total=total,
+                               per_device_month=(round(total / monitored, 4) if monitored else None),
+                               per_1000_devices_month=(round(1000 * total / monitored, 2) if monitored else None),
+                               per_incident=(round(total / incidents_per_month, 2) if incidents_per_month else None),
                                operator_inputs_configured=cost.configured)
 
     # ------------------------------------------------------------- ledger + attestation
@@ -420,6 +471,15 @@ def collect_pov_report(tenant_id: str, docstore: DocStore, ledger: Ledger,
 
     detector_versions = sorted({f.detector_version for f in findings})
     operator = operator_name or tenant_id
+    simulated_cases = sum(1 for c in period_cases
+                          if _is_simulated(c.reviewer) or any(_is_simulated(d.actor) for d in c.decisions))
+    is_synthetic = bool(synthetic) or simulated_cases > 0
+    notice = None
+    if is_synthetic:
+        notice = ("SYNTHETIC LAB DEMO: telemetry comes from the synthetic lab corpus and "
+                  + (f"{simulated_cases} case disposition(s) were made by a simulated analyst reading lab ground "
+                     "truth" if simulated_cases else "no real network was observed")
+                  + ". These figures demonstrate the workflow; they are not field results.")
     pov = PovReport(
         tenant_id=tenant_id, operator_name=operator, period_start=per.start, period_end=per.end,
         period_days=round(per.days, 3), generated_at=now, headline="", summary=[],
@@ -427,7 +487,8 @@ def collect_pov_report(tenant_id: str, docstore: DocStore, ledger: Ledger,
         dispositions=dispositions, false_alerts=fa, threat_classes=classes, device_classes=device_rows,
         daily=daily, top_cases=views, evidence=evidence_cov, timing=timing, effort=effort_summary,
         cost=cost_summary, attestation=attestation, ledger=ledger_view, validation=validation,
-        detector_versions=detector_versions, methodology=[], limitations=[])
+        detector_versions=detector_versions, methodology=[], limitations=[], synthetic=is_synthetic,
+        synthetic_notice=notice)
     pov.headline, pov.summary = _executive_summary(pov)
     pov.methodology = _methodology(pov)
     pov.limitations = _limitations(pov)
@@ -518,7 +579,9 @@ def _validate(truth: Mapping[tuple[str, date], str], dd_disp: Mapping[tuple[str,
     n = tp + fp + fn + tn
     return Validation(source=source, device_days=n, positive_device_days=tp + fn, tp=tp, fp=fp, fn=fn, tn=tn,
                       precision=tp / (tp + fp) if tp + fp else None, recall=tp / (tp + fn) if tp + fn else None,
-                      false_alerts_per_10k=_per_10k(fp, n))
+                      false_alerts_per_10k=_per_10k(fp, n), precision_ci=clopper_pearson(tp, tp + fp),
+                      recall_ci=clopper_pearson(tp, tp + fn),
+                      false_alerts_per_10k_ci_upper=upper_bound_per_10k(fp, fp + tn))
 
 
 # ---------------------------------------------------------------------------- narrative
@@ -554,7 +617,10 @@ def _executive_summary(p: PovReport) -> tuple[str, list[str]]:
     else:
         out.append(f"No alerts were raised; {a.abstain_for_review:,} uncertain signals were held for review.")
     if p.false_alerts.per_10k is not None:
-        txt = (f"False alerts: {p.false_alerts.per_10k:,.1f} per 10,000 device-days (analyst-rejected)")
+        txt = (f"False alerts: {p.false_alerts.per_10k:,.1f} per 10,000 device-days (analyst-rejected, "
+               f"n = {p.false_alerts.device_days or 0:,} device-days"
+               + (f"; 95% upper bound {p.false_alerts.per_10k_ci_upper:,.1f}" if p.false_alerts.per_10k_ci_upper
+                  is not None else "") + ")")
         if p.false_alerts.unresolved_device_days:
             txt += f", at most {p.false_alerts.per_10k_upper:,.1f} if every unresolved alert proved false"
         if p.false_alerts.budget_per_10k is not None:
@@ -569,25 +635,37 @@ def _executive_summary(p: PovReport) -> tuple[str, list[str]]:
     out.append(f"{att}; {led}.")
     eff = p.effort.est_minutes_per_case
     if eff is not None:
-        out.append(f"Estimated analyst effort {eff:.0f} minutes per case; cost per protected device-month "
-                   f"{_money(p.cost.per_device_month, p.cost.currency)}"
-                   + ("" if p.cost.operator_inputs_configured else " (analyst time only; no platform costs entered)")
-                   + ".")
+        line = f"Estimated analyst effort {eff:.0f} minutes per incident (one case per device incident)"
+        if p.cost.operator_inputs_configured:
+            line += (f"; cost per 1,000 monitored device-months {_money(p.cost.per_1000_devices_month, p.cost.currency)}"
+                     f", per incident {_money(p.cost.per_incident, p.cost.currency)}")
+        out.append(line + ".")
     if p.validation is not None:
         v = p.validation
-        out.append(f"Against {v.source}: precision {_fmt(v.precision, 3)}, recall {_fmt(v.recall, 3)}, "
-                   f"{_fmt(v.false_alerts_per_10k)} false alerts per 10k device-days "
-                   f"({v.positive_device_days:,} positive of {v.device_days:,} device-days).")
+        out.append(f"Against {v.source}: precision {_fmt(v.precision, 3)} (95% CI {_ci(v.precision_ci)}, "
+                   f"n = {v.tp + v.fp:,} alerted), recall {_fmt(v.recall, 3)} (95% CI {_ci(v.recall_ci)}, "
+                   f"n = {v.positive_device_days:,} positive), {_fmt(v.false_alerts_per_10k)} false alerts per 10k "
+                   f"device-days (95% upper bound {_fmt(v.false_alerts_per_10k_ci_upper)}; base rate "
+                   f"{v.positive_device_days:,} positive of {v.device_days:,} device-days).")
+    if p.synthetic and p.synthetic_notice:
+        out.insert(0, p.synthetic_notice)
     if not p.ledger.ok:
         headline = "Ledger integrity failure: treat every figure in this report as unverified"
     elif a.alerts == 0:
         headline = "No compromised-device alerts in the shadow period"
+    elif p.synthetic:
+        headline = (f"Synthetic lab demo: {a.alerted_devices:,} devices flagged with cited evidence, "
+                    f"{d.verified:,} device-days confirmed by a simulated analyst, zero enforcement")
     else:
         headline = (f"{a.alerted_devices:,} devices flagged with cited evidence, "
                     f"{d.verified:,} device-days verified by analysts, zero enforcement"
                     if p.attestation.status == "attested" else
                     f"{a.alerted_devices:,} devices flagged with cited evidence")
     return headline, out
+
+
+def _ci(ci: tuple[float, float] | None) -> str:
+    return "n/a" if ci is None else f"{ci[0]:.3f} to {ci[1]:.3f}"
 
 
 def _methodology(p: PovReport) -> list[str]:
@@ -602,7 +680,8 @@ def _methodology(p: PovReport) -> list[str]:
         "every alert on it was rejected by an analyst in the case workflow.",
         "False alerts per 10k device-days = rejected alerting device-days / observed device-days x 10,000. "
         "The upper bound additionally counts every pending or inconclusive device-day as false.",
-        "Alert latency = finding creation time minus the end of the evidence window. Detection delay = first alert "
+        "Alert latency = finding creation time minus the later of the end of the evidence window and the time the "
+        "telemetry closing that window was received (so late exports are not counted). Detection delay = first alert "
         "minus a confirmed compromise onset, and is only reported where onsets were supplied.",
         "Analyst minutes per case are estimated with the effort model shown in the report (triage, evidence review, "
         "investigation, counter-hypothesis review, disposition), not measured with a stopwatch.",
@@ -635,8 +714,12 @@ def _limitations(p: PovReport) -> list[str]:
         lim.append("No confirmed compromise onset times were supplied, so detection delay is not reported; alert "
                    "latency (pipeline time) is reported instead.")
     if not p.cost.operator_inputs_configured:
-        lim.append("No platform, infrastructure or other operating costs were entered; cost per protected "
-                   "device-month reflects estimated analyst time only.")
+        lim.append("No license, infrastructure or other operating costs were entered, so no cost per device is "
+                   "stated; the cost table reflects estimated analyst time only.")
+    if p.synthetic:
+        lim.insert(0, "Synthetic lab demonstration: the telemetry is the synthetic lab corpus and dispositions were "
+                      "made by a simulated analyst using lab ground truth. Nothing here is a measurement of a real "
+                      "network or of real analyst work.")
     if p.validation is not None:
         lim.append(f"The validation section uses {p.validation.source}. Synthetic or injected activity is easier to "
                    "separate than real-world compromise; treat those figures as a functional check, not field accuracy.")
@@ -658,7 +741,7 @@ def _env() -> Environment:
     env.filters["short"] = lambda h, n=12: (h or "")[:n]
     env.filters["dt"] = lambda v: "n/a" if v is None else v.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     env.filters["d"] = lambda v: v.strftime("%Y-%m-%d")
-    env.filters["label"] = lambda s: str(s).replace("_", " ")
+    env.filters["label"] = display_label
     env.filters["money"] = _money
     return env
 
@@ -666,7 +749,7 @@ def _env() -> Environment:
 def render_pov_html(pov: PovReport) -> str:
     """Render a collected :class:`PovReport` to self-contained HTML."""
     rows = [charts.BarRow(
-        label=r.label.replace("_", " "),
+        label=display_label(r.label),
         segments=(charts.Segment("verified", r.verified, STATUS["good"]),
                   charts.Segment("rejected (false)", r.rejected, STATUS["critical"]),
                   charts.Segment("pending / inconclusive", r.pending, STATUS["neutral"])))
@@ -679,7 +762,7 @@ def render_pov_html(pov: PovReport) -> str:
          ("suspicious", [d.suspicious for d in pov.daily], SERIES[3]),
          ("abstain (held for review)", [d.abstain for d in pov.daily], "#b9b7ae")],
         aria_label="findings per day by verdict", empty_message="No findings in this period")
-    dev_rows = [charts.BarRow(label=r.device_class.replace("_", " "),
+    dev_rows = [charts.BarRow(label=display_label(r.device_class),
                               segments=(charts.Segment("alerted devices", r.alerted_devices, SERIES[0]),),
                               note=(f"of {r.devices_observed:,}" if r.devices_observed is not None else ""))
                 for r in pov.device_classes]
@@ -702,5 +785,5 @@ def build_pov_report(tenant_id: str, docstore: DocStore, ledger: Ledger,
     return render_pov_html(collect_pov_report(tenant_id, docstore, ledger, period, **kwargs))
 
 
-__all__ = ["DAYS_PER_MONTH", "build_pov_report", "collect_pov_report", "device_day_of", "render_pov_html",
+__all__ = ["DAYS_PER_MONTH", "alert_latency_s", "build_pov_report", "clopper_pearson", "upper_bound_per_10k", "collect_pov_report", "device_day_of", "render_pov_html",
            "report_fingerprint"]

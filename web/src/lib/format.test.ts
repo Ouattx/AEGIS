@@ -60,3 +60,14 @@ describe("format", () => {
     expect(clamp(5, 0, 3)).toBe(3);
   });
 });
+
+describe("display labels", () => {
+  it("keeps acronyms and curated names", () => {
+    expect(humanize("ddos_bot")).toBe("DDoS bot");
+    expect(humanize("dga_activity")).toBe("DGA activity");
+    expect(humanize("dns_sinkhole")).toBe("DNS sinkhole");
+    expect(humanize("c2_beaconing")).toBe("C2 beaconing");
+    expect(humanize("ip_block")).toBe("IP block");
+    expect(humanize("some_new_label")).toBe("Some new label");
+  });
+});

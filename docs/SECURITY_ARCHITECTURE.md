@@ -66,6 +66,16 @@ health checks, log rotation.
 * Each tenant has an append-only, hash-chained ledger; every entry is signed with the deployment's Ed25519
   ledger key. `aegis ledger verify` / `GET /api/v1/ledger/verify` detect any edited, deleted, reordered or
   re-signed-without-key entry.
+* Truncation of the end of the chain: the in-database head record is unsigned, so on its own it only catches
+  accidents. Every append also writes a signed `(tenant, seq, head hash, time)` checkpoint to an append-only
+  file outside the database (`AEGIS_LEDGER_ANCHOR_PATH`; put it on another volume, a WORM store or ship it to
+  the SIEM). Verification refuses a chain shorter than, or diverging from, the latest valid signed
+  checkpoint, so an attacker with database access alone cannot erase approvals, refusals or revocations
+  recorded at the end of the chain. Residual risk: an attacker controlling both the database and the anchor
+  file can roll both back to an older consistent state; an off-host copy of the anchor closes that gap.
+* Execution never trusts mutable documents for its gates: MIRROR is re-run at approval and at execution, the
+  human approval must exist as a signed ledger entry bound to the very action id being executed, and the
+  rollback rehearsal must be in the signed ledger.
 * Replay reconstructs what was known at time T (evidence, model and rule versions, decisions) from the
   ledger, so an investigator can audit a past decision without hindsight.
 * The detection model artifact carries a SHA-256 manifest (optionally signed); a tampered artifact is
@@ -77,9 +87,19 @@ health checks, log rotation.
 mirror_result == SAFE AND action.scope <= approved_scope AND action.expires_at set AND rollback_plan_verified`
 
 Every conjunct is evaluated and reported; none is delegated to an LLM. A `shadow` policy fails the
-"policy mode is active" check by design. Shared hosting, uncertain collateral or an incomplete topology yields
-UNKNOWN and fails closed. A second human approves. Execution is time-boxed; expired actions are swept and
-rolled back; a circuit breaker rolls back automatically on abnormal legitimate-traffic error rates.
+"policy mode is active" check by design, and the newest valid signed policy is authoritative, so issuing a
+newer shadow policy switches enforcement off. Shared hosting, uncertain collateral or an incomplete topology
+yields UNKNOWN and fails closed. Targets must be tied to the case evidence (an unrelated target needs a
+policy-approved `allow_unlinked_targets` scope, always needs a human, and is UNSAFE on shared hosting).
+`rollback_plan_verified` is set only by a rehearsal of apply + rollback on the enforcement adapter, never by
+the proposer. A second human approves, and the approval binds exactly one action: a sibling action of the
+same case can never be executed on it. Execution is time-boxed; expired actions are swept and rolled back.
+A circuit breaker rolls back automatically on abnormal legitimate-traffic error rates fed by
+`POST /api/v1/actions/{id}/health` (integration collectors or approvers); an approver resets it with a
+recorded reason (`POST /api/v1/enforcement/breaker/reset`). Leaving EXECUTED requires the enforcement to be
+removed first (rollback or expiry), never a bare state change. A live adapter is bound to one tenant
+(`AEGIS_ENFORCEMENT_TENANT`); policy keys placed under `trusted/policy/<tenant>/` sign that tenant's
+policies only.
 
 ## 6. Threat model (spec section 15)
 
@@ -99,6 +119,7 @@ implemented, residual risk stated. Test ids are `tests/unit/<file>::<test>`.
 | T9 | Unauthorized blocking | dry-run default; full `authorize()` conjunction; shadow policy never authorizes; no policy, no execution | `tests/unit/test_mirror_safety.py::test_unauthorized_blocking_is_impossible`, `tests/unit/test_api_actions.py::test_shadow_policy_never_authorizes_and_approval_is_refused`, `tests/unit/test_api_actions.py::test_no_policy_means_no_execution` | Covered |
 | T10 | Insider misuse | least-privilege roles; four-eyes; every call audited including refusals; RBAC-denial alerting | `tests/unit/test_api_actions.py::test_proposer_cannot_approve_own_action`, `tests/unit/test_api_actions.py::test_proposer_cannot_execute_even_with_approver_role`, `tests/unit/test_api_rbac.py::test_permission_matrix_is_least_privilege`, `tests/unit/test_api_app.py::test_every_mutating_call_is_audited_including_refusals` | Partial: a colluding analyst and approver can act together within a signed active policy; the ledger makes it attributable |
 | T11 | Compromised signing keys | revocation; signatures over the full chain; policy re-checked at execution; asymmetric OIDC only; rotation runbook | `tests/unit/test_provenance_ledger.py::test_revoked_key_breaks_verification`, `tests/unit/test_provenance_ledger.py::test_full_rewrite_without_key_is_caught_by_signatures`, `tests/unit/test_api_actions.py::test_policy_revoked_between_approval_and_execution_blocks`, `tests/unit/test_api_auth.py::test_oidc_rejects_symmetric_and_unsigned_tokens` | Covered; procedure in [runbooks/key-rotation.md](runbooks/key-rotation.md) |
+| T13 | Database-level tampering with enforcement gates | approval bound to one action id in the signed ledger; MIRROR re-run at approval and execution; action document checked against its signed proposal; rollback rehearsal in the signed ledger; signed external head anchor against truncation | `tests/unit/test_enforcement_binding.py::test_approval_of_one_action_never_executes_a_sibling`, `tests/unit/test_enforcement_binding.py::test_approval_forged_in_the_database_is_refused`, `tests/unit/test_enforcement_binding.py::test_execute_reruns_mirror_instead_of_trusting_the_stored_result`, `tests/unit/test_enforcement_binding.py::test_action_document_changed_after_approval_is_refused`, `tests/unit/test_provenance_ledger.py::test_truncation_with_rewritten_head_is_caught_by_external_anchor` | Covered; residual: an attacker holding both the database and the anchor file can roll both back (keep an off-host anchor copy) |
 | T12 | False infringement claims | RIGHTS is not part of v1; SHIELD has no copyright workflow and never treats IPTV usage as evidence | `tests/unit/test_sentinel_detector.py::test_benign_iptv_and_streaming_boxes_not_flagged` | Out of scope (v1) |
 
 ### Spec section 15 mandatory tests

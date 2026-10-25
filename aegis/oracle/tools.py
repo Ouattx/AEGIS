@@ -18,6 +18,7 @@ Security model
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import uuid
@@ -138,6 +139,25 @@ def sanitize_text(value: Any, max_len: int = 1000) -> str:
     cleaned = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", " ", value)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned[:max_len]
+
+
+def clip_text(value: Any, max_len: int = 160) -> str:
+    """Sanitized text shortened at a word boundary with an ellipsis, never mid-token.
+
+    A parenthesis or bracket left open by the cut is dropped together with its
+    partial contents, so evidence summaries never read as truncated identifiers.
+    """
+    text = sanitize_text(value, 100_000)
+    if len(text) <= max_len:
+        return text
+    cut = text[: max_len - 1]
+    space = cut.rfind(" ")
+    if space >= max_len // 2:
+        cut = cut[:space]
+    for open_, close in (("(", ")"), ("[", "]")):
+        if cut.count(open_) > cut.count(close):
+            cut = cut[: cut.rfind(open_)]
+    return cut.rstrip(" ,;:-(") + "\u2026"
 
 
 def _jsonable(data: Any) -> Any:
@@ -294,7 +314,12 @@ class CandidateEdgeWriter:
         if self._atlas is None:
             return None
         at = observed_at or datetime.now(timezone.utc)
-        prov = f"oracle:{self._case.case_id}:{src}->{dst}"[:160]
+        # The provenance id identifies this exact observation (content digest), so re-running
+        # an investigation is idempotent for identical content and appends a new observation
+        # otherwise; it never collides with an earlier observation of the same link.
+        digest = hashlib.sha256(json.dumps([src, dst, edge_type, at.isoformat(), rationale],
+                                           ensure_ascii=False).encode("utf-8")).hexdigest()[:32]
+        prov = f"oracle:{self._case.case_id}:{digest}"
         edge = self._atlas.add_candidate_edge(self._case.tenant_id, src, dst, edge_type, at, prov,
                                               rationale=rationale)
         self.written.append(edge.edge_id)
@@ -417,11 +442,14 @@ def build_default_toolset(*, docstore: DocStore, evidence_store: EvidenceStore, 
                           atlas: Any | None = None, keyring: KeyRing | None = None,
                           connectors: Iterable[IntelConnector] = (),
                           simulator: Callable[[ProposedAction], MirrorResult] | None = None,
-                          clock: Callable[[], datetime] | None = None) -> Toolset:
+                          clock: Callable[[], datetime] | None = None,
+                          ledger_keyring: KeyRing | None = None) -> Toolset:
     """Standard ORACLE toolset over the platform stores. Every tool is read-only.
 
     ``intel_lookup`` returns connector answers; the evidence collector agent (not
-    the tool) decides what to append through its write scope.
+    the tool) decides what to append through its write scope. ``keyring`` holds the
+    trusted operator-policy keys; ``ledger_keyring`` the ledger signing keys used by
+    ``provenance_check`` (falls back to ``keyring`` when not given).
     """
     now = clock or (lambda: datetime.now(timezone.utc))
     ts = Toolset(evidence_store=evidence_store, ledger=ledger, docstore=docstore, atlas=atlas)
@@ -535,7 +563,8 @@ def build_default_toolset(*, docstore: DocStore, evidence_store: EvidenceStore, 
             per[eid] = {"hash_verified": evidence_store.verify(case.tenant_id, eid),
                         "ledger_recorded_at": entries[0].recorded_at.isoformat() if entries else None,
                         "superseded_by": evidence_store.superseded_by(case.tenant_id, eid)}
-        ok, bad = ledger.verify_chain(case.tenant_id, keyring)
+        # ledger entries are signed by the ledger key, not by operator policy keys
+        ok, bad = ledger.verify_chain(case.tenant_id, ledger_keyring if ledger_keyring is not None else keyring)
         return {"evidence": per, "ledger_chain_ok": ok, "ledger_first_bad_seq": bad}
 
     def impact_simulation(case: Case, args: dict[str, Any]) -> dict[str, Any]:

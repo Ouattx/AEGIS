@@ -222,7 +222,15 @@ def test_isotonic_calibrator_roundtrip_and_validation():
     cal = IsotonicCalibrator.fit(np.array([-2.0, -1.0, 0.0, 1.0, 2.0]), np.array([0, 0, 1, 1, 1]))
     clone = IsotonicCalibrator.from_dict(cal.to_dict())
     assert clone.calibration_id == cal.calibration_id
-    assert float(clone(5.0)) == pytest.approx(1.0) and float(clone(-5.0)) == pytest.approx(0.0)
+    # three positives in the saturated top block: rule of succession (3 + 1) / (3 + 2) = 0.8
+    assert cal.ceiling == pytest.approx(0.8)
+    assert float(clone(5.0)) == pytest.approx(0.8) and float(clone(-5.0)) == pytest.approx(0.0)
+    # artifacts without a recorded ceiling are capped at the default, never at certainty
+    legacy = IsotonicCalibrator.from_dict({"method": "isotonic", "x": [0.0, 1.0], "y": [0.0, 1.0]})
+    assert legacy.ceiling is None and float(legacy(9.0)) == pytest.approx(0.99)
+    assert "ceiling" not in legacy.to_dict()
+    with pytest.raises(ValueError):
+        IsotonicCalibrator.from_dict({"method": "isotonic", "x": [0.0], "y": [0.0], "ceiling": 0.1})
     with pytest.raises(ValueError):
         IsotonicCalibrator.from_dict({"method": "isotonic", "x": [1.0, 0.0], "y": [0.0, 1.0]})
     with pytest.raises(ValueError):

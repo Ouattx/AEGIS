@@ -44,6 +44,7 @@ from aegis.mirror.base import (
     AdapterResult,
     EnforcementAdapter,
     InvalidTargetError,
+    RollbackRehearsal,
     normalize_domain,
     normalize_ip,
 )
@@ -158,6 +159,46 @@ class RPZAdapter(EnforcementAdapter):
             details={"zone": str(self.zone_path), "serial": serial,
                      "removed_records": (removed or {}).get("records", []),
                      "restored_entry": prior is not None})
+
+    def rehearse_rollback(self, action: ProposedAction, *, now: datetime) -> RollbackRehearsal:
+        """Render the zone with and without the action's records, entirely in memory.
+
+        Passes when the records appear once applied, the zone renders back byte for
+        byte to the current content once they are removed, and the zone directory is
+        writable. Neither the zone, its state file nor the resolver is touched.
+        """
+        checks: dict[str, bool] = {}
+        try:
+            self.check_supported(action)
+            if action.expires_at is None:
+                raise AdapterError("RPZ entries must carry an expiry")
+            records = self._records_for(action)
+            with self._locked():
+                state = self._load_state()
+        except (AdapterError, InvalidTargetError) as exc:
+            return RollbackRehearsal(ok=False, method="rpz_render_rehearsal", detail=str(exc))
+        ref = _utc(now)
+        serial = int(state.get("serial", 0))
+        before = self._render(state, ref, serial)
+        prior = state["entries"].get(action.action_id)
+        applied_state = json.loads(json.dumps(state))
+        applied_state["entries"][action.action_id] = {
+            "case_id": action.case_id, "action_type": action.action_type.value,
+            "expires_at": _utc(action.expires_at).isoformat(), "created_at": ref.isoformat(),
+            "records": records}
+        applied = self._render(applied_state, ref, serial)
+        checks["records_rendered"] = all(f"{r['owner']} " in applied for r in records)
+        reverted_state = json.loads(json.dumps(applied_state))
+        reverted_state["entries"].pop(action.action_id, None)
+        if isinstance(prior, dict):
+            reverted_state["entries"][action.action_id] = prior
+        checks["zone_restored_exactly"] = self._render(reverted_state, ref, serial) == before
+        checks["zone_dir_writable"] = os.access(self.zone_path.parent, os.W_OK)
+        ok = all(checks.values())
+        return RollbackRehearsal(ok=ok, method="rpz_render_rehearsal", checks=checks,
+                                 detail=("records render and removal restores the zone exactly" if ok
+                                         else "rehearsal failed: " + ", ".join(k for k, v in checks.items()
+                                                                                if not v)))
 
     def records(self, now: datetime | None = None) -> list[tuple[str, str]]:
         """Active ``(owner, rdata)`` policy records as they appear in the zone."""

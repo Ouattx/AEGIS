@@ -1,7 +1,9 @@
 """Ingest pipeline: parse -> normalize/pseudonymize -> validate -> publish.
 
 Every input record ends in exactly one of: published, quarantined (with its
-original bytes), or skipped as an exact duplicate. ``IngestStats`` accounts for
+original bytes), dropped as an exact duplicate, or skipped as out of scope for the
+source (the return leg of a unidirectional flow, transit traffic outside the
+declared subscriber prefixes). ``IngestStats`` accounts for
 all of them so the ingestion-success SLO (spec section 13) can be measured.
 """
 from __future__ import annotations
@@ -17,7 +19,7 @@ from typing import Any, Callable, Iterable, Mapping, Union
 from aegis.contracts.models import ObservationEvent
 from aegis.ingest import parsers
 from aegis.ingest.bus import OBSERVATIONS_TOPIC, Backpressure, EventBus
-from aegis.ingest.normalize import NormalizationError, SourceConfig, normalize
+from aegis.ingest.normalize import NormalizationError, RecordSkipped, SourceConfig, normalize
 from aegis.ingest.pseudonym import Pseudonymizer, TenantKeyProvider
 from aegis.ingest.validator import QuarantineStore, Quarantined, Validator, make_quarantined
 
@@ -53,6 +55,9 @@ class IngestStats:
     published: int = 0
     quarantined: int = 0
     duplicates: int = 0
+    #: valid records out of scope for the source (return legs of unidirectional flows...)
+    skipped: int = 0
+    skip_reasons: dict[str, int] = field(default_factory=dict)
     backpressure_waits: int = 0
     quarantine_reasons: dict[str, int] = field(default_factory=dict)
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -62,7 +67,7 @@ class IngestStats:
     @property
     def success_rate(self) -> float | None:
         """Share of non-duplicate records that became valid events (None if no records)."""
-        considered = self.records_read - self.duplicates
+        considered = self.records_read - self.duplicates - self.skipped
         return None if considered <= 0 else self.accepted / considered
 
     @property
@@ -74,7 +79,8 @@ class IngestStats:
             "source_id": self.source_id, "tenant_id": self.tenant_id, "input_ref": self.input_ref,
             "format": self.format, "records_read": self.records_read, "accepted": self.accepted,
             "published": self.published, "quarantined": self.quarantined,
-            "duplicates": self.duplicates, "backpressure_waits": self.backpressure_waits,
+            "duplicates": self.duplicates, "skipped": self.skipped, "skip_reasons": dict(self.skip_reasons),
+            "backpressure_waits": self.backpressure_waits,
             "quarantine_reasons": dict(self.quarantine_reasons), "success_rate": self.success_rate,
             "events_per_s": self.events_per_s, "started_at": self.started_at.isoformat(),
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
@@ -221,6 +227,10 @@ class IngestPipeline:
         now = self.clock()
         try:
             event = normalize(raw, src, pseudo, now, raw_artifact_ref=ref)
+        except RecordSkipped as skip:
+            stats.skipped += 1
+            stats.skip_reasons[skip.code] = stats.skip_reasons.get(skip.code, 0) + 1
+            return
         except NormalizationError as exc:
             self._quarantine_raw(raw, exc.code, exc.detail, src, ref, stats, reasons,
                                  stage="parse" if raw.get("_error") else "normalize")

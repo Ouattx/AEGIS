@@ -342,7 +342,7 @@ export function ActionDetailPage() {
             <dd>{a.expires_at ? <Time ts={a.expires_at} /> : <Badge tone="warn">no expiry</Badge>}</dd>
             <dt>Rollback plan</dt>
             <dd>
-              {a.rollback_plan ?? "—"} {a.rollback_verified ? <Badge tone="ok">verified</Badge> : <Badge tone="warn">unverified</Badge>}
+              {a.rollback_plan ?? "—"} {a.rollback_verified ? <Badge tone="ok">rehearsed on adapter</Badge> : <Badge tone="warn">not rehearsed</Badge>}
             </dd>
           </dl>
           {can("approve") ? (

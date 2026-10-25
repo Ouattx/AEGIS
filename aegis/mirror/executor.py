@@ -32,12 +32,15 @@ from aegis.mirror.base import (
     ExecutionRecord,
     ExecutionStatus,
     InvalidTargetError,
+    RollbackRehearsal,
     is_human,
     normalized_targets,
 )
 from aegis.mirror.breaker import CircuitBreaker
 from aegis.provenance.ledger import EntryType, Ledger
 
+#: ledger entry type of a rollback rehearsal
+ROLLBACK_REHEARSAL_ENTRY = "rollback_rehearsal"
 DRY_RUN_TOLERATED_CHECKS = frozenset({"policy_not_active_mode"})
 DEFAULT_MAX_DECISION_AGE = timedelta(minutes=30)
 _CLOCK_SKEW = timedelta(seconds=60)
@@ -190,6 +193,25 @@ class Executor:
         if action.action_id in self._live:
             reasons.append("already_active")
         return list(dict.fromkeys(reasons))
+
+    # ------------------------------------------------------------------ rehearsal
+    def rehearse_rollback(self, action: ProposedAction) -> RollbackRehearsal:
+        """Rehearse apply + rollback on the adapter without enforcing anything.
+
+        The outcome is written to the ledger (``rollback_rehearsal``); only a passing
+        rehearsal lets an action carry ``rollback_verified``.
+        """
+        now = _utc(self._clock())
+        try:
+            result = self.adapter.rehearse_rollback(action, now=now)
+        except Exception as exc:  # a crashing rehearsal is a failed rehearsal
+            result = RollbackRehearsal(ok=False, method="error",
+                                       detail=f"{type(exc).__name__}: {exc}"[:500])
+        self.ledger.append(action.tenant_id, ROLLBACK_REHEARSAL_ENTRY, action.action_id, {
+            "action_id": action.action_id, "case_id": action.case_id, "adapter": self.adapter.name,
+            "dry_run": self.adapter.dry_run, "ok": result.ok, "method": result.method,
+            "checks": result.checks, "detail": result.detail, "at": now.isoformat()})
+        return result
 
     # ------------------------------------------------------------------ rollback
     def rollback(self, action_id: str, *, actor: str = "system", reason: str = "rollback",

@@ -21,9 +21,12 @@ collector is fixed. Budget at 99.9%: 1 invalid record per 1,000.
 
 ## Known-IOC alert latency
 
-Measured from the `observed_at` of the first event that contacted a fresh signed indicator to the finding's
-creation. It includes the collector export interval and the push cadence, which the operator controls:
-5-minute files make the 120 s pilot gate unreachable, so pilots that track this SLO push every minute.
+The proof-of-value report measures it per alert as the finding's creation (wall clock) minus the later of
+the end of its evidence window and the time the telemetry that closed the window was received
+(`Finding.ingested_at`). So a late or backfilled export is not counted as detector latency, while a slow
+pipeline is. End-to-end freshness also includes the collector export interval and the push cadence, which
+the operator controls: 5-minute files make a 120 s end-to-end target unreachable, so pilots that track it push
+every minute and compare `ingested_at` with `observed_at` in the ingest statistics.
 
 ## Evidence provenance
 
@@ -54,6 +57,6 @@ The budget is agreed with the operator before the pilot starts and evaluated at 
 ## Cost and capacity records (spec section 13)
 
 Recorded for each pilot in the PoV report and the pilot log: events per second at peak (from
-`aegis_ingest_records_total`), host size, cost per million events, per investigation, per protected
+`aegis_ingest_records_total`), host size, cost per million events, per investigation, per monitored
 device-month and per retained GB. Load tiers beyond the pilot (10k, 100k, 1M events/s) are tested only with
 explicit event sizes and an agreed infrastructure budget.

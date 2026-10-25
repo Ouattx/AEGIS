@@ -136,6 +136,11 @@ for _canon, _names in {
 
 NETFLOW_REQUIRED = ("observed_at", "dst_ip")
 
+#: header names whose reverse-direction counters are written as ``0`` (not empty) by
+#: unidirectional exporters (nfdump / nProbe on NetFlow v5/v9 without bi-flow):
+#: their zeros mean "not exported", see ``SourceConfig.flow_direction``
+UNIFLOW_REVERSE_COLUMNS = frozenset({"obyt", "opkt", "out_bytes", "out_pkts"})
+
 
 class NetflowCsvParser:
     """Line-level NetFlow/IPFIX CSV parser bound to one header row.
@@ -149,12 +154,17 @@ class NetflowCsvParser:
     def __init__(self, header: list[str]):
         self.columns: list[str | None] = []
         seen: set[str] = set()
+        #: True when bytes_in / packets_in come from a uniflow-style "out" column
+        self.zero_means_missing_reverse = False
         for h in header:
-            canon = NETFLOW_ALIASES.get(h.strip().lower())
+            name = h.strip().lower()
+            canon = NETFLOW_ALIASES.get(name)
             if canon in seen:
                 canon = None  # first matching column wins
             if canon:
                 seen.add(canon)
+                if canon in ("bytes_in", "packets_in") and name in UNIFLOW_REVERSE_COLUMNS:
+                    self.zero_means_missing_reverse = True
             self.columns.append(canon)
         missing = [c for c in NETFLOW_REQUIRED if c not in seen]
         if missing:
@@ -177,6 +187,8 @@ class NetflowCsvParser:
                                  f"expected {self.width} columns, got {len(values)}")
         rec: RawRecord = {"record_type": "flow", "_format": FORMAT_NETFLOW_CSV,
                           "_line_no": line_no, "_raw": raw}
+        if self.zero_means_missing_reverse:
+            rec["_uniflow_reverse"] = True
         for col, v in zip(self.columns, values):
             if col is not None:
                 v = v.strip()
@@ -193,7 +205,11 @@ def parse_netflow_csv(src: Source) -> Iterator[RawRecord]:
             text = _decode(raw)
             if text is None:
                 raise ParseError("netflow CSV header is not valid UTF-8")
-            parser = NetflowCsvParser(next(csv.reader([text])))
+            try:
+                header = next(csv.reader([text]))
+            except (csv.Error, StopIteration) as exc:
+                raise ParseError(f"netflow CSV header is not valid CSV: {exc}") from exc
+            parser = NetflowCsvParser(header)
             continue
         if raw.strip() == b"Summary":  # nfdump appends a summary block after the records
             return

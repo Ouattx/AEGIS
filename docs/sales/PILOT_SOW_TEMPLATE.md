@@ -2,7 +2,7 @@
 
 > **TEMPLATE FOR COUNSEL REVIEW.** This is a drafting template, not a contract and not legal advice. Both
 > parties' counsel must review and adapt it (governing law, liability, data-protection clauses, procurement
-> terms) before signature. Bracketed fields: **[FOUNDER TO SET]** for vendor commercial terms, **[CUSTOMER]**
+> terms) before signature. Bracketed fields: **FOUNDER TO SET** (keyed, filled by `deploy/tools/render_sales_kit.py`) for vendor commercial terms, **[CUSTOMER]**
 > for the operator, **[COUNSEL]** for legal drafting decisions.
 
 **Between** [AEGIS OMEGA legal entity, registration, address] ("Vendor")
@@ -68,14 +68,14 @@ Customer data leaves the Customer environment by default].
 Business hours [Mon-Fri 9:00-18:00 CET]; SEV1 per the Software's incident runbook acknowledged within [4]
 business hours. No 24/7 service is provided during the pilot.
 
-## 8. Fees [FOUNDER TO SET]
+## 8. Fees
 
 | Item | Amount |
 |---|---|
-| Shadow Pilot fee | [FOUNDER TO SET: amount, currency, excl. VAT] |
-| Extension | [FOUNDER TO SET] |
-| Payment schedule | [FOUNDER TO SET] |
-| Credit towards production | [FOUNDER TO SET: amount/% if production signed within N days] |
+| Shadow Pilot fee | [FOUNDER TO SET pilot_fee: amount, currency, excl. VAT] |
+| Extension | [FOUNDER TO SET extension_fee] |
+| Payment schedule | [FOUNDER TO SET payment_terms] |
+| Credit towards production | [FOUNDER TO SET production_credit: amount/% if production signed within N days] |
 
 ## 9. End of pilot: deletion or handover
 

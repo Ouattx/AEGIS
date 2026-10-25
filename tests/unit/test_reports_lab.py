@@ -22,7 +22,8 @@ def test_pilot_populates_stores(pilot):
     stored = list(pilot.docstore.iter_all(Finding, pilot.tenant_id))
     assert len(stored) == len(pilot.findings) > 0
     alerts = [f for f in pilot.findings if f.verdict in (Verdict.MALICIOUS, Verdict.SUSPICIOUS)]
-    assert pilot.cases_opened == len(alerts)
+    # one incident, one case: every alerting device has exactly one case
+    assert pilot.cases_opened == len({f.entity_pseudonym for f in alerts})
     assert sum(pilot.dispositions.values()) == pilot.cases_opened
     cases = CaseService(pilot.docstore, pilot.evidence_store, pilot.ledger).list_cases(pilot.tenant_id)
     assert all(c.state in (CaseState.VERIFIED, CaseState.REJECTED, CaseState.INCONCLUSIVE) for c in cases)

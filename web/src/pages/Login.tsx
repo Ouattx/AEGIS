@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { describeError } from "../api/client";
 import { useAsync } from "../api/hooks";
@@ -37,7 +37,7 @@ export const ROLE_INFO: Record<Exclude<Role, "integration">, { title: string; te
 const ORDER: Array<keyof typeof ROLE_INFO> = ["analyst", "approver", "viewer", "admin"];
 
 export function LoginPage() {
-  const { client, loginDemo, loginWithToken, notice } = useAuth();
+  const { client, loginDemo, loginWithToken, loginWithOidc, notice } = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
   const cfg = useAsync(() => client.authConfig(), [client]);
@@ -55,6 +55,18 @@ export function LoginPage() {
     } catch (e) {
       setError(e);
     } finally {
+      setBusy(null);
+    }
+  };
+
+  const sso = async () => {
+    if (!cfg.data?.oidc_login) return;
+    setBusy("sso");
+    setError(null);
+    try {
+      await loginWithOidc(cfg.data.oidc_login, next);
+    } catch (e) {
+      setError(e);
       setBusy(null);
     }
   };
@@ -118,26 +130,41 @@ export function LoginPage() {
           <div className="panel" style={{ padding: 18 }}>
             <div className="row" style={{ marginBottom: 10 }}>
               <IconKey width={18} height={18} />
-              <h2>Sign in with your identity provider token</h2>
+              <h2>Sign in</h2>
             </div>
             <p className="muted" style={{ marginTop: 0 }}>
-              This deployment uses {cfg.data.auth_mode === "oidc" ? "OIDC" : "bearer"} authentication
+              This deployment uses {cfg.data.auth_mode === "oidc" ? "your organisation's identity provider" : "bearer authentication"}
               {cfg.data.oidc_issuer ? (
                 <>
-                  {" "}issued by <span className="mono">{cfg.data.oidc_issuer}</span>
+                  {" "}(<span className="mono">{cfg.data.oidc_issuer}</span>)
                 </>
               ) : null}
-              . Paste an access token for audience <span className="mono">{cfg.data.oidc_audience ?? "aegis-api"}</span>; your tenant and roles come from its claims only.
+              . Your tenant and roles come from the identity provider only.
             </p>
-            <div className="field">
-              <label htmlFor="tok">Access token</label>
-              <textarea id="tok" className="input mono" rows={4} value={token} onChange={(e) => setToken(e.target.value)} spellCheck={false} />
-            </div>
-            <div className="row" style={{ marginTop: 12 }}>
-              <button className="btn primary" disabled={!token.trim() || busy !== null} onClick={useToken}>
-                {busy === "token" && <span className="spinner" />} Sign in
+            {cfg.data.oidc_login ? (
+              <button className="btn primary" onClick={sso} disabled={busy !== null} data-testid="sso-login">
+                {busy === "sso" && <span className="spinner" />} Sign in with single sign-on
               </button>
-            </div>
+            ) : (
+              <div className="callout warn">
+                {cfg.data.oidc_login_error
+                  ? `Single sign-on is configured but the identity provider is unreachable (${cfg.data.oidc_login_error}).`
+                  : "Single sign-on is not configured for the console (AEGIS_OIDC_CLIENT_ID)."}{" "}
+                Use the administrator fallback below.
+              </div>
+            )}
+            <details style={{ marginTop: 16 }} open={!cfg.data.oidc_login} data-testid="token-fallback">
+              <summary className="muted small">Administrator fallback: paste an access token</summary>
+              <div className="field" style={{ marginTop: 10 }}>
+                <label htmlFor="tok">Access token for audience <span className="mono">{cfg.data.oidc_audience ?? "aegis-api"}</span></label>
+                <textarea id="tok" className="input mono" rows={4} value={token} onChange={(e) => setToken(e.target.value)} spellCheck={false} />
+              </div>
+              <div className="row" style={{ marginTop: 12 }}>
+                <button className="btn" disabled={!token.trim() || busy !== null} onClick={useToken}>
+                  {busy === "token" && <span className="spinner" />} Sign in with token
+                </button>
+              </div>
+            </details>
           </div>
         )}
         {error !== null && (
@@ -149,6 +176,36 @@ export function LoginPage() {
           <span>Shadow-mode pilots are read-only: no blocking, no DPI payloads, pseudonymous device identifiers only.</span>
           <span>Every state change is written to a signed, hash-chained ledger.</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Receives the identity provider redirect, exchanges the code (PKCE) and continues. */
+export function OidcCallbackPage() {
+  const { completeOidcLogin } = useAuth();
+  const nav = useNavigate();
+  const loc = useLocation();
+  const [error, setError] = useState<unknown>(null);
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) return; // the code is single-use: never exchange it twice
+    started.current = true;
+    completeOidcLogin(loc.search)
+      .then((next) => nav(next, { replace: true }))
+      .catch((e) => setError(e));
+  }, [completeOidcLogin, loc.search, nav]);
+  return (
+    <div className="login">
+      <div className="login-card">
+        {error === null ? (
+          <Loading label="Completing sign-in" />
+        ) : (
+          <div className="callout bad" role="alert">
+            Sign-in failed: {describeError(error)}{" "}
+            <a href="/login" onClick={(e) => { e.preventDefault(); nav("/login", { replace: true }); }}>Start again</a>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -77,7 +77,8 @@ def test_f2_strong_ioc_alone_is_suspicious():
 
 def test_f3_f4_model():
     r3 = fusion_policy([], ml(0.97), anomaly(0.99), None, FV)
-    assert r3.verdict == Verdict.MALICIOUS and r3.rule == "F3_model_corroborated"
+    # model + anomaly read the same operator telemetry (one origin): capped at SUSPICIOUS
+    assert r3.verdict == Verdict.SUSPICIOUS and r3.rule == "F3_model_corroborated"
     r4 = fusion_policy([], ml(0.97), anomaly(0.5), None, FV)
     assert r4.verdict == Verdict.SUSPICIOUS and r4.rule == "F4_model_only"
     # a change point is not enough to make a model-only finding MALICIOUS
@@ -148,7 +149,7 @@ def test_single_window_model_spike_abstains():
     # a weak indicator plus an elevated model score is still reviewed as SUSPICIOUS
     weak = hit(eff=0.54, contradicted=True)
     assert fusion_policy([weak], ml(0.8, persistence=1), None, None, FV).rule == "F5_weak_ioc_and_model"
-    assert fusion_policy([], ml(0.99, persistence=2), anomaly(0.99), None, FV).verdict == Verdict.MALICIOUS
+    assert fusion_policy([], ml(0.99, persistence=2), anomaly(0.99), None, FV).verdict == Verdict.SUSPICIOUS
 
 
 def test_float_ml_accepted_and_scores_clipped():
@@ -162,7 +163,7 @@ def test_policy_is_preregistered_and_hashed():
     assert DEFAULT_FUSION_POLICY.policy_hash == FusionPolicy().policy_hash
     assert FusionPolicy(ml_malicious=0.95).policy_hash != DEFAULT_FUSION_POLICY.policy_hash
     r = fusion_policy([], ml(0.01), None, None, FV)
-    assert r.policy_hash == DEFAULT_FUSION_POLICY.policy_hash and r.as_dict()["policy_id"] == "sentinel-fusion/1"
+    assert r.policy_hash == DEFAULT_FUSION_POLICY.policy_hash and r.as_dict()["policy_id"] == "sentinel-fusion/2"
     with pytest.raises(ValueError):
         FusionPolicy(ml_suspicious=0.95, ml_malicious=0.9)
 
@@ -182,3 +183,15 @@ def test_components_reported_without_averaging():
 def test_window_end_irrelevant_to_policy():
     later = make_fv(window_end=T0 + timedelta(days=30))
     assert fusion_policy([], ml(0.97), None, None, later).verdict == Verdict.SUSPICIOUS
+
+
+def test_malicious_is_reserved_for_verification_grade_evidence():
+    """Single-origin agreement (model + anomaly + change point, all operator telemetry)
+    never yields MALICIOUS; a verified signed indicator contact does."""
+    from aegis.sentinel.fusion import format_probability
+
+    r = fusion_policy([], ml(0.999, persistence=5), anomaly(0.999), [CP], FV)
+    assert r.verdict == Verdict.SUSPICIOUS and "single telemetry origin" in r.reasons[0]
+    assert fusion_policy([hit()], ml(0.999, persistence=5), anomaly(0.999), None, FV).verdict == Verdict.MALICIOUS
+    assert format_probability(1.0) == ">0.99" and format_probability(0.5) == "0.50"
+    assert format_probability(0.001) == "<0.01"

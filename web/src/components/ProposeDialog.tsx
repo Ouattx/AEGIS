@@ -52,7 +52,6 @@ export function ProposeDialog({
   const [legal, setLegal] = useState<string>(legalBases[0] ?? "");
   const [hours, setHours] = useState<number>(Math.min(24, policy?.max_ttl_hours ?? 24));
   const [plan, setPlan] = useState<string>("Remove the enforcement entry; the adapter restores the recorded prior state.");
-  const [verified, setVerified] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const targetList = targets
@@ -77,7 +76,6 @@ export function ProposeDialog({
         legal_basis: legal.trim() || null,
         expires_in_hours: hours > 0 ? hours : undefined,
         rollback_plan: plan.trim() || null,
-        rollback_verified: verified,
       });
       onProposed(a.action_id);
     } catch (e) {
@@ -159,10 +157,10 @@ export function ProposeDialog({
         <label htmlFor="plan">Rollback plan</label>
         <textarea id="plan" className="input" rows={2} value={plan} onChange={(e) => setPlan(e.target.value)} maxLength={4000} />
       </div>
-      <label className="check">
-        <input type="checkbox" checked={verified} onChange={(e) => setVerified(e.target.checked)} data-testid="propose-rollback-verified" />
-        <span>Rollback plan has been verified (tested on the enforcement point)</span>
-      </label>
+      <p className="help" data-testid="propose-rollback-rehearsal">
+        The rollback is rehearsed automatically on the enforcement adapter when the action is proposed (apply then
+        revert, without touching the enforcement point). Only a passing rehearsal plus a written plan marks it verified.
+      </p>
       {error !== null && <ErrorBox error={error} />}
     </Modal>
   );

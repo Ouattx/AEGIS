@@ -45,7 +45,8 @@ def auth(svc: AegisService, tenant: str, *roles: str, sub: str | None = None) ->
     return {"Authorization": f"Bearer {token(svc, tenant, *roles, sub=sub)}"}
 
 
-def seed_case(svc: AegisService, tenant: str, *, origins: int = 2, domain: str = C2_DOMAIN) -> tuple[Finding, str]:
+def seed_case(svc: AegisService, tenant: str, *, origins: int = 2, domain: str = C2_DOMAIN,
+              entity: str = ENTITY) -> tuple[Finding, str]:
     """A MALICIOUS finding backed by ``origins`` independent observations, and its opened case."""
     now = svc.clock()
     ids = []
@@ -55,7 +56,7 @@ def seed_case(svc: AegisService, tenant: str, *, origins: int = 2, domain: str =
             source_independence_group=f"group-{i}", collected_at=now, summary=f"beacon to {domain}",
             payload={"domain": domain, "ip": C2_IP}, authorization_id="auth-test"))
         ids.append(ev.evidence_id)
-    f = Finding(tenant_id=tenant, entity_pseudonym=ENTITY, device_class="android_tv", detector_version="test/1",
+    f = Finding(tenant_id=tenant, entity_pseudonym=entity, device_class="android_tv", detector_version="test/1",
                 label="c2_beaconing", verdict=Verdict.MALICIOUS, score=0.97, calibration_id="cal-test",
                 observed_window_start=now - timedelta(hours=1), observed_window_end=now, evidence_ids=ids,
                 created_at=now, expires_at=now + timedelta(days=3))

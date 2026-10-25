@@ -32,7 +32,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 from starlette.concurrency import run_in_threadpool
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from aegis.api.auth import Authenticator
+from aegis.api.auth import Authenticator, OIDCLogin
 from aegis.api.deps import MUTATING_METHODS, ApiError
 from aegis.api.logs import configure_logging, request_context
 from aegis.api.metrics import CONTENT_TYPE, ApiMetrics
@@ -167,6 +167,7 @@ def create_app(settings: Settings | None = None, *, service: AegisService | None
     app.state.service = svc
     app.state.metrics = metrics
     app.state.authenticator = Authenticator(settings)
+    app.state.oidc_login = OIDCLogin(settings)
     app.state.tenant_limiter = RateLimiter(settings.rate_limit_rps, settings.rate_limit_burst)
     app.state.ip_limiter = RateLimiter(1.0, 20)
 

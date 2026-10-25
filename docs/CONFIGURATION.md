@@ -23,6 +23,9 @@ message instead of failing at the first request. Empty values mean "use the defa
 | `AEGIS_OIDC_ISSUER` | required for `oidc` | exact `iss` of accepted tokens |
 | `AEGIS_OIDC_AUDIENCE` | required for `oidc` | required `aud` value |
 | `AEGIS_OIDC_JWKS_URL` | discovered | JWKS endpoint; discovered from `<issuer>/.well-known/openid-configuration` when empty |
+| `AEGIS_OIDC_CLIENT_ID` | unset | public client id registered for the console: enables browser sign-in (authorization code + PKCE, token refresh); register `https://<console>/auth/callback` as redirect URI. Without it the console offers only the paste-a-token administrator fallback |
+| `AEGIS_OIDC_CLIENT_SECRET` | unset | only for an IdP that insists on a confidential client; used server-side by the token relay, never sent to the browser |
+| `AEGIS_OIDC_SCOPES` | `openid profile email offline_access` | scopes requested by the console (`offline_access` yields a refresh token) |
 | `AEGIS_OIDC_TENANT_CLAIM` | `tenant_id` | claim carrying the AEGIS tenant id |
 | `AEGIS_OIDC_ROLES_CLAIM` | `roles` | claim carrying roles (list, or space/comma separated string) |
 | `AEGIS_OIDC_ALGORITHMS` | `RS256` | comma-separated; only asymmetric `RS*`, `PS*`, `ES*` are accepted |
@@ -39,6 +42,7 @@ message instead of failing at the first request. Empty values mean "use the defa
 | `AEGIS_DATA_DIR` | `./aegis-data` | `/var/lib/aegis` | `keys/` (ledger signing key, dev secret, tenant pseudonym keys, mode 0700), `trusted/{policy,ioc,ledger}/` public keys |
 | `AEGIS_PSEUDONYM_MASTER_KEY` | dev key (warning) | required | hex, >= 16 bytes (use 32); per-tenant HMAC keys are derived from it with HKDF |
 | `AEGIS_LEDGER_KEY_ID` | `aegis-ledger` | | id of the ledger signing key; a new id generates a new key (rotation, see runbooks) |
+| `AEGIS_LEDGER_ANCHOR_PATH` | `<data_dir>/anchors/ledger-heads.jsonl` | | append-only file of signed ledger head checkpoints. Put it on a different volume than the database (or a WORM store / SIEM shipper): verification refuses a chain shorter than its latest signed checkpoint, so database-only truncation is detected |
 | `AEGIS_MODEL_DIR` | shipped model | image: `/opt/aegis/models/sentinel-default` | detection model artifact directory |
 | `AEGIS_MODEL_REQUIRE_SIGNATURE` | `false` | | refuse a model whose manifest is not signed by a trusted ledger key |
 | `AEGIS_WEB_DIST` | `<repo>/web/dist` | image: `/opt/aegis/web/dist` | built console served at `/` |
@@ -48,6 +52,7 @@ message instead of failing at the first request. Empty values mean "use the defa
 | Variable | Default | Meaning |
 |---|---|---|
 | `AEGIS_ENFORCEMENT_ADAPTER` | `dryrun` | `dryrun` (never touches the network), `rpz` or `webhook` |
+| `AEGIS_ENFORCEMENT_TENANT` | unset | the single tenant allowed to drive a live (`rpz` / `webhook`) adapter; required with those adapters (the adapter and its circuit breaker are deployment-wide) |
 | `AEGIS_RPZ_ZONE_PATH` | required for `rpz` | RPZ zone file written by the adapter (mount a volume shared with the resolver) |
 | `AEGIS_RPZ_RELOAD_COMMAND` | none | command run after each zone change (shell-style quoting), e.g. `rndc reload rpz.aegis` |
 | `AEGIS_WEBHOOK_URL` | required for `webhook` | operator endpoint receiving HMAC-signed apply/rollback requests |
@@ -80,6 +85,7 @@ reference, a SAFE simulation, bounded expiry, a verified rollback plan and a sec
 | Variable | Default | Compose | Meaning |
 |---|---|---|---|
 | `AEGIS_LLM_ENABLED` | `true` | `false` | allow ORACLE to use an LLM when a key is present |
+| `AEGIS_DETECTION_JOURNAL` | `true` | `false` | keep the last ~26 h of normalized telemetry so detection windows, persistence and repeat suppression survive a restart |
 | `ANTHROPIC_API_KEY` | unset | | without it no LLM is used, whatever `AEGIS_LLM_ENABLED` says |
 | `AEGIS_LLM_MODEL` | `claude-sonnet-5-5` | | model id |
 

@@ -7,6 +7,8 @@ export interface Session {
   me: Me;
   /** epoch milliseconds when the token stops being accepted (from the JWT ``exp`` claim) */
   expiresAt: number | null;
+  /** OIDC refresh token (browser sign-in only): renews the access token before it expires */
+  refreshToken?: string | null;
 }
 
 /** Decode the ``exp`` claim of a JWT without verifying it (the API verifies every request). */

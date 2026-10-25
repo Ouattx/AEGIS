@@ -34,7 +34,7 @@ OIDC discovery/JWKS (to your IdP) and, if you enable it, the optional LLM endpoi
 | | Pilot minimum | Notes |
 |---|---|---|
 | OS | Linux x86-64 (RHEL 9, Ubuntu 22.04/24.04, Debian 12) | any distribution with Docker Engine 24+ and Compose v2.24+ |
-| CPU / RAM | 4 vCPU / 16 GB | detection state is held in memory per active device and window |
+| CPU / RAM | 4 vCPU / 16 GB | detection state is held in memory per active device and window, and journalled (last ~26 h of normalized telemetry) so a restart rebuilds it without losing window context or re-alerting ongoing incidents |
 | Disk | 100 GB SSD | PostgreSQL grows with findings, evidence and the ledger, not with raw telemetry volume |
 | Network | HTTPS from collectors and analysts to the reverse proxy; HTTPS to the IdP | no inbound access from the internet is needed |
 
@@ -119,10 +119,18 @@ role; `aegis_push.py` uses its client credentials.
 either emit a custom `tenant_id` claim through a claims-mapping policy or set `AEGIS_OIDC_TENANT_CLAIM=tid`
 to use the Entra tenant id as the AEGIS tenant. Issuer: `https://login.microsoftonline.com/<tenant-guid>/v2.0`.
 
-**Console sign-in.** In v1 the console accepts an access token pasted on the sign-in screen (kept in
-`sessionStorage` for the browser tab and discarded on expiry or 401). Analysts obtain it from the IdP
-(e.g. Keycloak `kcadm.sh`/device flow, `az account get-access-token --resource api://aegis-api`). A browser
-redirect (authorization code + PKCE) login is not part of v1.
+**Console sign-in (single sign-on).** Register a *public* client for the console and set
+`AEGIS_OIDC_CLIENT_ID` (and `AEGIS_OIDC_SCOPES` if your IdP needs an API scope, e.g. Entra
+`openid profile offline_access api://aegis-api/.default`). Allowed redirect URI:
+`https://aegis.operator.example/auth/callback`; PKCE (S256) required; the access token audience must be
+`AEGIS_OIDC_AUDIENCE`. Analysts then click **Sign in with single sign-on**: the console runs the
+authorization-code flow with PKCE, the AEGIS API relays the code-for-token exchange (no cross-origin access
+to the IdP is needed, and `AEGIS_OIDC_CLIENT_SECRET` stays server-side if your IdP insists on a confidential
+client), and the session renews itself with the refresh token before the access token expires. Keycloak:
+client `aegis-console`, *Client authentication* off, *Standard flow* on, the same `tenant_id` / `roles`
+mappers as above with `aegis-api` in the audience (audience mapper). Entra ID: a *Single-page application*
+platform with the redirect URI above, exposing or consuming `api://aegis-api`. An administrator fallback
+(paste an access token) stays available on the sign-in screen.
 
 Require MFA for every role at the IdP, and keep `approver` and `admin` membership small and reviewed.
 
@@ -193,7 +201,21 @@ curl -fsS -X POST "$API/api/v1/sources" -H "Authorization: Bearer $TOKEN" -H 'Co
 ```
 
 `source_kind`: `netflow`, `dns`, `zeek_conn`, `zeek_dns`, `cpe`. `vantage`: `subscriber_line` (core, one
-identity per line or NAT) or `device` (CPE/gateway, per device). See
+identity per line or NAT) or `device` (CPE/gateway, per device).
+
+For unidirectional NetFlow/IPFIX (nfdump v5/v9 without bi-flow, the common ISP export) also declare the
+subscriber address space, so return legs are not counted as devices, and say whether the exporter really
+sends reply counters:
+
+```bash
+  ..., "entity_field": "src_ip", "subscriber_prefixes": ["100.64.0.0/10", "2001:db8:100::/40"],
+  "flow_direction": "uniflow" }'
+```
+
+With `subscriber_prefixes`, flows whose source is outside them (server replies, transit) are counted as
+`skipped` in the ingest statistics, never quarantined and never attributed. `flow_direction`: `uniflow` treats
+reverse byte/packet counters as missing (never as "no reply"), `biflow` keeps them, `auto` (default) treats
+a `0` in nfdump/nProbe `obyt`/`opkt` columns as missing. See
 [OPERATOR_INTEGRATION.md](OPERATOR_INTEGRATION.md) for which detections each combination supports.
 
 **8.2 Create operator signing keys (offline).** On the operator's signing workstation, not on the AEGIS host:

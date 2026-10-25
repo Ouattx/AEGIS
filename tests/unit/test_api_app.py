@@ -128,7 +128,7 @@ def test_rate_limiter_refills():
 
 def test_pagination_and_filters(env):
     svc, client = env
-    ids = [seed_case(svc, T)[1] for _ in range(5)]
+    ids = [seed_case(svc, T, entity=f"p_{i:032d}")[1] for i in range(5)]  # one case per device incident
     h = auth(svc, T, "viewer")
     page = client.get("/api/v1/cases?limit=2&offset=0", headers=h).json()
     assert page["total"] == 5 and len(page["items"]) == 2 and page["limit"] == 2

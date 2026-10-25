@@ -68,6 +68,15 @@ _QNAME_RE = re.compile(r"^(?:[\x21-\x2d\x2f-\x7e]{1,63}\.)*[\x21-\x2d\x2f-\x7e]{
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_]{1,16}$")
 
 
+class RecordSkipped(Exception):
+    """The record is valid but out of scope for this source (e.g. the return leg of a
+    unidirectional flow): it is counted, not quarantined and not published."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 class NormalizationError(ValueError):
     """Record cannot be normalized; ``code`` is a stable quarantine reason."""
 
@@ -96,6 +105,30 @@ class SourceConfig(BaseModel):
     assume_utc_for_naive: bool = False
     #: records stamped further than this in the future are quarantined
     max_clock_skew_s: int = Field(default=300, ge=0)
+    #: CIDRs of the subscriber (inside) address space. When set and the entity is the
+    #: source IP, only flows *from* these prefixes are attributed: the return leg of a
+    #: unidirectional flow (remote server -> subscriber) and transit flows are skipped,
+    #: so a remote server never becomes a "device"
+    subscriber_prefixes: tuple[str, ...] = ()
+    #: reverse counters (bytes_in / packets_in): ``biflow`` keeps them as exported,
+    #: ``uniflow`` treats them as missing, ``auto`` treats a 0 from a uniflow-style
+    #: column (nfdump/nProbe ``obyt``/``opkt``) as missing (exporters write 0, not empty)
+    flow_direction: Literal["auto", "biflow", "uniflow"] = "auto"
+
+    @field_validator("subscriber_prefixes")
+    @classmethod
+    def _cidrs(cls, v: tuple[str, ...]) -> tuple[str, ...]:
+        out = []
+        for c in v:
+            try:
+                out.append(str(ipaddress.ip_network(str(c).strip(), strict=False)))
+            except ValueError as exc:
+                raise ValueError(f"invalid subscriber prefix {c!r}") from exc
+        return tuple(out)
+
+    @property
+    def subscriber_networks(self) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+        return _networks(self.subscriber_prefixes)
 
     @field_validator("format")
     @classmethod
@@ -107,6 +140,18 @@ class SourceConfig(BaseModel):
     @property
     def parser_format(self) -> str:
         return self.format or DEFAULT_FORMATS[self.source_kind]
+
+
+@lru_cache(maxsize=256)
+def _networks(prefixes: tuple[str, ...]) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    return tuple(ipaddress.ip_network(p, strict=False) for p in prefixes)
+
+
+def _inside(ip: str | None, nets: tuple[Any, ...]) -> bool:
+    if ip is None:
+        return False
+    addr = ipaddress.ip_address(ip)
+    return any(addr.version == n.version and addr in n for n in nets)
 
 
 # --------------------------------------------------------------------------- field parsers
@@ -313,7 +358,17 @@ def _construct(cls: type[_M], values: dict[str, Any]) -> _M:
     return obj
 
 
-_META_KEYS = ("_raw", "_line_no", "_format", "_error", "_error_detail")
+_META_KEYS = ("_raw", "_line_no", "_format", "_error", "_error_detail", "_uniflow_reverse")
+
+
+def _reverse(raw: dict[str, Any], key: str, source: SourceConfig) -> int | None:
+    """A reverse-direction counter, or None when the exporter does not really provide it."""
+    value = _opt_int(raw, key)
+    if source.flow_direction == "uniflow":
+        return None
+    if source.flow_direction == "auto" and value == 0 and raw.get("_uniflow_reverse") is True:
+        return None
+    return value
 
 
 def record_integrity_sha256(raw: dict[str, Any]) -> str:
@@ -361,6 +416,15 @@ def normalize(raw: dict[str, Any], source: SourceConfig, pseudonymizer: Pseudony
         ident = src_ip
     else:
         ident = device_id if device_id is not None else src_ip
+    if (rtype == "flow" and source.subscriber_prefixes and ident is not None and ident == src_ip
+            and not _inside(src_ip, source.subscriber_networks)):
+        # return leg (remote -> subscriber) or transit: never attribute it to the remote address
+        dst_raw = raw.get("dst_ip")
+        try:
+            dst_inside = _inside(_ip(dst_raw, "dst_ip"), source.subscriber_networks) if dst_raw else False
+        except NormalizationError:
+            dst_inside = False
+        raise RecordSkipped("return_flow" if dst_inside else "outside_subscriber_prefixes")
     if ident is None:
         raise NormalizationError("missing_entity",
                                  f"no {source.entity_field if source.entity_field != 'auto' else 'device_id/src_ip'}"
@@ -378,9 +442,9 @@ def normalize(raw: dict[str, Any], source: SourceConfig, pseudonymizer: Pseudony
             "dst_port": _opt_int(raw, "dst_port", 65535),
             "protocol": _protocol(raw.get("protocol")),
             "bytes_out": _opt_int(raw, "bytes_out"),
-            "bytes_in": _opt_int(raw, "bytes_in"),
+            "bytes_in": _reverse(raw, "bytes_in", source),
             "packets_out": _opt_int(raw, "packets_out"),
-            "packets_in": _opt_int(raw, "packets_in"),
+            "packets_in": _reverse(raw, "packets_in", source),
             "duration_ms": _duration_ms(raw),
         })
         _opt_int(raw, "src_port", 65535)  # validated even though not retained

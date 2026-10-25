@@ -15,7 +15,7 @@ from typing import Any, Sequence
 from aegis.contracts.models import Evidence, FeatureVector, Verdict
 from aegis.sentinel.anomaly import AnomalyScore, ChangePoint
 from aegis.sentinel.features import FEATURE_DOCS
-from aegis.sentinel.fusion import FusionResult
+from aegis.sentinel.fusion import FusionResult, format_probability
 
 LABEL_DGA = "dga_activity"
 LABEL_DDOS = "ddos_bot"
@@ -112,7 +112,7 @@ def render_explanation(*, fv: FeatureVector, result: FusionResult, label: str, l
         parts.append("Behavior: " + "; ".join(label_reasons) + ".")
     ml = result.component_scores.get("ml")
     if ml is not None:
-        txt = f"Calibrated model probability {ml:.2f}"
+        txt = f"Calibrated model probability {format_probability(ml)}"
         if model_contrib:
             txt += " (main factors: " + ", ".join(_fmt_contrib(c) for c in model_contrib[:4]) + ")"
         parts.append(txt + ".")

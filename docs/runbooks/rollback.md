@@ -28,9 +28,12 @@ Automatic rollbacks (no human needed):
 
 * **Expiry.** Every action has an `expires_at` bounded by the policy's `max_ttl_hours`; the sweeper (every
   `AEGIS_SWEEP_INTERVAL_S`) rolls back expired live actions.
-* **Circuit breaker.** When the adapter reports an abnormal legitimate-traffic error rate, the breaker trips,
-  rolls back the affected live action and refuses new executions while open (`/readyz` shows
-  `circuit_breaker: open`). In v1 it is reset by restarting the API after the cause is understood.
+* **Circuit breaker.** Resolver / NOC telemetry feeds legitimate-traffic health samples for each live action
+  (`POST /api/v1/actions/<action_id>/health` with `{"requests": N, "errors": E}`, integration or approver
+  token). On an abnormal error rate the breaker trips, rolls back the affected live action (its case moves to
+  ROLLED_BACK) and refuses new executions while open (`/readyz` and `GET /api/v1/enforcement/breaker` show
+  `open`). Once the cause is understood an approver closes it with a reason, which is ledgered:
+  `curl -X POST -H "Authorization: Bearer $APPROVER" -d '{"reason":"resolver fixed"}' .../api/v1/enforcement/breaker/reset`.
 
 Verify after any rollback:
 

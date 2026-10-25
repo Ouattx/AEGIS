@@ -180,3 +180,57 @@ def test_parse_timestamp_variants():
         parse_timestamp([1])
     with pytest.raises(NormalizationError):
         parse_timestamp(10**15)
+
+
+# ------------------------------------------------------------------ unidirectional NetFlow (nfdump v5/v9)
+
+NFDUMP_UNIFLOW = (
+    "ts,te,td,sa,da,sp,dp,pr,flg,ipkt,ibyt,opkt,obyt\n"
+    # subscriber 100.64.1.7 -> server, and the server's reply as a separate (reverse) flow
+    "2026-10-01T08:00:01Z,x,0.75,100.64.1.7,198.18.0.20,51000,443,6,.AP.SF,12,4210,0,0\n"
+    "2026-10-01T08:00:01Z,x,0.74,198.18.0.20,100.64.1.7,443,51000,6,.AP.SF,15,18892,0,0\n"
+    # transit between two outside hosts (e.g. mis-scoped export)
+    "2026-10-01T08:00:02Z,x,0.10,203.0.113.5,198.18.0.21,1234,53,17,......,1,80,0,0\n"
+)
+
+
+def test_unidirectional_nfdump_export_is_modelled_per_subscriber(tmp_path):
+    from aegis.ingest.bus import OBSERVATIONS_TOPIC, InMemoryBus
+    from aegis.ingest.normalize import SourceConfig
+    from aegis.ingest.pipeline import IngestPipeline
+    from aegis.ingest.pseudonym import Pseudonymizer
+    from aegis.ingest.validator import Validator
+
+    bus = InMemoryBus()
+    got = []
+    bus.subscribe(OBSERVATIONS_TOPIC, got.append)
+    src = SourceConfig(tenant_id="t1", source_id="nf", source_kind="netflow", vantage="subscriber_line",
+                       collection_authorization_id="auth-1", subscriber_prefixes=("100.64.0.0/10",))
+    p = IngestPipeline(bus, Validator(), {"nf": src}, pseudonymizers={"t1": Pseudonymizer(b"k" * 32)})
+    stats = p.ingest_text(NFDUMP_UNIFLOW, "nf")
+    bus.drain()
+    assert stats.records_read == 3 and stats.published == 1 and stats.quarantined == 0
+    assert stats.skipped == 2 and stats.skip_reasons == {"return_flow": 1, "outside_subscriber_prefixes": 1}
+    assert stats.success_rate == 1.0
+    (ev,) = got
+    assert ev.flow.dst_ip == "198.18.0.20" and ev.flow.bytes_out == 4210
+    # nfdump writes 0 (not empty) for counters a uniflow exporter does not have: missing, never "no reply"
+    assert ev.flow.bytes_in is None and ev.flow.packets_in is None
+
+
+def test_flow_direction_modes():
+    from aegis.ingest.normalize import SourceConfig, normalize
+    from aegis.ingest.parsers import parse_netflow_csv
+    from aegis.ingest.pseudonym import Pseudonymizer
+
+    (rec, *_rest) = list(parse_netflow_csv(NFDUMP_UNIFLOW))
+    nonzero = dict(rec, bytes_in="900", packets_in="3")
+    base = dict(tenant_id="t1", source_id="nf", source_kind="netflow", vantage="subscriber_line",
+                collection_authorization_id="a")
+    ps = Pseudonymizer(b"k" * 32)
+    now = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
+    assert normalize(nonzero, SourceConfig(**base), ps, now).flow.bytes_in == 900          # auto keeps real counters
+    assert normalize(rec, SourceConfig(**base, flow_direction="biflow"), ps, now).flow.bytes_in == 0
+    assert normalize(nonzero, SourceConfig(**base, flow_direction="uniflow"), ps, now).flow.bytes_in is None
+    with pytest.raises(ValueError):
+        SourceConfig(**base, subscriber_prefixes=("not-a-cidr",))

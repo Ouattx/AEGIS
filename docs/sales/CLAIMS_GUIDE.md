@@ -26,6 +26,8 @@ When in doubt, say less and offer the pilot.
 | Do not say | Why | Say instead |
 |---|---|---|
 | "99% accuracy", "detects 100% of infected devices" | accuracy is meaningless at low base rates; lab recall is not field recall | "In the pilot we measure recall on confirmed cases and false alerts per 10,000 device-days, with confidence intervals." |
+| "The fusion engine is more accurate than a single model" | the benchmark shows no statistically supported accuracy gain of the ensemble over the supervised model alone (see its fusion-gain section) | "Fusion adds signed-indicator corroboration, explanations and abstention; accuracy is measured in your pilot." |
+| "Devices protected" | a shadow pilot blocks nothing | "Devices monitored." |
 | "Zero false positives" | the lab shows zero on synthetic data; the field will not | "False alerts are measured against a budget you set before the pilot." |
 | "Blocks botnets", "stops attacks automatically" | v1 is sold as shadow; enforcement is gated and operator-controlled | "Gives your team defensible findings; any action stays under your signed policy." |
 | "AI-powered detection", "autonomous AI agents" | detection is rules plus a calibrated model; agents only draft investigations | "Deterministic detection with optional AI-drafted investigation summaries." |

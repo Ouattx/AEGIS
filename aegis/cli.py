@@ -1,6 +1,6 @@
 """``aegis`` command line.
 
-    aegis demo                       lab corpus -> model -> detection -> cases -> API on 0.0.0.0:8000
+    aegis demo                       lab corpus -> model -> detection -> cases -> API on 127.0.0.1:8000
     aegis serve                      run the API (configuration from AEGIS_* environment variables)
     aegis token --role analyst ...   mint a dev-mode bearer token (AEGIS_AUTH_MODE=dev only)
     aegis sources add|list           register / list authorized telemetry sources of a tenant
@@ -9,6 +9,7 @@
     aegis benchmark                  run the independent benchmark harness (source checkout)
     aegis report --tenant T          render the shadow proof-of-value report
     aegis keys generate              create an Ed25519 key pair (optionally trusted by this deployment)
+    aegis keys revoke                permanently distrust a policy / IOC / ledger key (compromise response)
     aegis policy sign                sign an operator policy JSON with a private key
     aegis ledger verify --tenant T   verify a tenant's hash chain and signatures
 """
@@ -173,7 +174,9 @@ def cmd_sources(args: argparse.Namespace) -> int:
             cfg = svc.register_source(args.tenant, args.actor, source_id=args.source_id, source_kind=args.kind,
                                       vantage=args.vantage, collection_authorization_id=args.authorization,
                                       retention_days=args.retention_days, format=args.format,
-                                      entity_field=args.entity_field)
+                                      entity_field=args.entity_field,
+                                      subscriber_prefixes=args.subscriber_prefix or (),
+                                      flow_direction=args.flow_direction)
             print(json.dumps(cfg.model_dump(mode="json"), indent=1))
         else:
             print(json.dumps([c.model_dump(mode="json") for c in svc.list_sources(args.tenant)], indent=1))
@@ -206,6 +209,10 @@ def cmd_train(args: argparse.Namespace, rest: list[str]) -> int:
 
 
 def cmd_benchmark(args: argparse.Namespace, rest: list[str]) -> int:
+    # the harness lives in the source checkout (eval/), next to the aegis package or in the CWD
+    for root in (Path.cwd(), Path(__file__).resolve().parents[1]):
+        if (root / "eval" / "run_benchmark.py").is_file() and str(root) not in sys.path:
+            sys.path.insert(0, str(root))
     try:
         from eval.run_benchmark import main as bench_main  # type: ignore[import-not-found]
     except ImportError:
@@ -235,6 +242,8 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 
 def cmd_keys(args: argparse.Namespace) -> int:
+    if args.keys_cmd == "revoke":
+        return cmd_keys_revoke(args)
     from aegis.provenance.signing import Signer
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -257,6 +266,18 @@ def cmd_keys(args: argparse.Namespace) -> int:
             return _err(str(exc))
         result["trusted_as"] = args.trust
     print(json.dumps(result, indent=1))
+    return 0
+
+
+def cmd_keys_revoke(args: argparse.Namespace) -> int:
+    """Revoke a trusted key. A running API applies it within one sweep interval (default 60 s)."""
+    from aegis.service import ServiceError
+    try:
+        svc = _service(_settings(args), load_model=False)
+        out = svc.revoke_key(args.kind, args.key_id, actor=args.actor, reason=args.reason)
+    except (SettingsError, ServiceError) as exc:
+        return _err(str(exc))
+    print(json.dumps(out, indent=1))
     return 0
 
 
@@ -302,7 +323,8 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--data-dir", default=None, help="data directory (default: $AEGIS_DATA_DIR or ./aegis-data)")
 
     d = sub.add_parser("demo", help="one-command demonstration on synthetic lab data")
-    d.add_argument("--host", default="0.0.0.0")
+    d.add_argument("--host", default="127.0.0.1",
+                   help="bind address (default loopback: the demo hands out tokens without credentials)")
     d.add_argument("--port", type=int, default=8000)
     d.add_argument("--data-dir", default=".aegis-demo", help="demo data directory (recreated on every run)")
     d.add_argument("--force", action="store_true", help="allow replacing a non-demo --data-dir")
@@ -316,7 +338,7 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--log-format", choices=("json", "text"), default="text")
 
     s = sub.add_parser("serve", help="run the API")
-    s.add_argument("--host", default="0.0.0.0")
+    s.add_argument("--host", default="127.0.0.1", help="bind address (pass 0.0.0.0 explicitly to expose it)")
     s.add_argument("--port", type=int, default=8000)
     data_dir(s)
 
@@ -339,6 +361,10 @@ def build_parser() -> argparse.ArgumentParser:
     sa.add_argument("--retention-days", type=int, default=30)
     sa.add_argument("--format", default=None)
     sa.add_argument("--entity-field", default="auto", choices=("auto", "device_id", "src_ip"))
+    sa.add_argument("--subscriber-prefix", action="append", default=None, metavar="CIDR",
+                    help="subscriber address space (repeatable); flows from other sources are skipped")
+    sa.add_argument("--flow-direction", default="auto", choices=("auto", "biflow", "uniflow"),
+                    help="whether the exporter's reverse byte/packet counters are real (biflow)")
     sa.add_argument("--actor", default="cli:operator")
     data_dir(sa)
     sl = so_sub.add_parser("list")
@@ -370,10 +396,16 @@ def build_parser() -> argparse.ArgumentParser:
     kg = k_sub.add_parser("generate")
     kg.add_argument("--key-id", required=True)
     kg.add_argument("--out-dir", required=True)
-    kg.add_argument("--trust", choices=("policy", "ioc", "ledger"), default=None,
+    kg.add_argument("--trust", choices=("policy", "ioc", "ledger", "model"), default=None,
                     help="also trust the public key in this deployment")
     kg.add_argument("--overwrite", action="store_true")
     data_dir(kg)
+    kr = k_sub.add_parser("revoke", help="permanently distrust a key (persisted, ledgered in every tenant)")
+    kr.add_argument("--kind", required=True, choices=("policy", "ioc", "ledger", "model"))
+    kr.add_argument("--key-id", required=True)
+    kr.add_argument("--reason", required=True)
+    kr.add_argument("--actor", default=os.environ.get("USER", "cli:operator"))
+    data_dir(kr)
 
     p = sub.add_parser("policy", help="operator policies")
     p_sub = p.add_subparsers(dest="policy_cmd", required=True)

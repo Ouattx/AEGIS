@@ -76,6 +76,26 @@ class EnforcementAdapter(ABC):
                now: datetime) -> AdapterResult:
         """Restore the enforcement point to ``prior_state`` for ``action``."""
 
+    def rehearse_rollback(self, action: ProposedAction, *, now: datetime) -> RollbackRehearsal:
+        """Prove, without changing the enforcement point, that ``action`` can be applied
+        and then removed so the enforcement point returns exactly to its current state.
+
+        Adapters that cannot rehearse report ``ok=False``: the authorizer's
+        ``rollback_plan_verified`` conjunct then fails closed.
+        """
+        return RollbackRehearsal(ok=False, method="unsupported",
+                                 detail=f"{self.name} adapter cannot rehearse a rollback")
+
+
+class RollbackRehearsal(BaseModel):
+    """Outcome of :meth:`EnforcementAdapter.rehearse_rollback` (recorded in the ledger)."""
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    method: str
+    detail: str = ""
+    checks: dict[str, bool] = Field(default_factory=dict)
+
 
 class ExecutionStatus(str, Enum):
     APPLIED = "applied"            # enforcement is live

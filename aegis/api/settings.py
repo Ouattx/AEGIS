@@ -29,6 +29,25 @@ class SettingsError(ValueError):
     """Raised when the configuration is invalid or unsafe."""
 
 
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def secure_idp_url(url: str, *, production: bool) -> bool:
+    """True for an https URL, or an http URL to a loopback host outside production.
+
+    Signing keys fetched over plain http could be substituted by anyone on the path,
+    letting them mint tokens for any tenant and role.
+    """
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url.strip())
+    if not parsed.netloc:
+        return False
+    if parsed.scheme == "https":
+        return True
+    return parsed.scheme == "http" and not production and (parsed.hostname or "") in _LOOPBACK_HOSTS
+
+
 class Settings(BaseModel):
     """Runtime configuration. Construct directly in tests, or with :meth:`from_env`."""
 
@@ -46,6 +65,13 @@ class Settings(BaseModel):
     oidc_issuer: str | None = None
     oidc_audience: str | None = None
     oidc_jwks_url: str | None = None
+    #: public (PKCE) client registered for the console: enables browser sign-in
+    #: (authorization code + PKCE, token refresh). Without it the console offers
+    #: only the paste-a-token administrator fallback.
+    oidc_client_id: str | None = None
+    #: only for an IdP that insists on a confidential client; the console never sees it
+    oidc_client_secret: str | None = None
+    oidc_scopes: str = "openid profile email offline_access"
     oidc_tenant_claim: str = "tenant_id"
     oidc_roles_claim: str = "roles"
     oidc_algorithms: tuple[str, ...] = ("RS256",)
@@ -60,9 +86,16 @@ class Settings(BaseModel):
     model_require_signature: bool = False
     web_dist: Path = REPO_ROOT / "web" / "dist"
     ledger_key_id: str = "aegis-ledger"
+    #: append-only file of signed ledger head checkpoints; keep it outside the database
+    #: volume (separate mount, WORM store, shipped to the SIEM). Default: <data_dir>/anchors/
+    ledger_anchor_path: Path | None = None
 
     # -- enforcement -------------------------------------------------------------------
     enforcement_adapter: AdapterKind = "dryrun"
+    #: the one tenant allowed to drive a live (rpz / webhook) adapter. The adapter and its
+    #: circuit breaker are deployment-wide, so live enforcement is bound to a single tenant;
+    #: required whenever the adapter is not ``dryrun``
+    enforcement_tenant: str | None = None
     rpz_zone_path: Path | None = None
     rpz_reload_command: tuple[str, ...] = ()
     webhook_url: str | None = None
@@ -80,6 +113,9 @@ class Settings(BaseModel):
 
     # -- runtime -----------------------------------------------------------------------
     llm_enabled: bool = True
+    #: keep the last ~25 h of normalized telemetry in the database so detection context
+    #: (24 h windows, persistence, suppression) survives a restart
+    detection_journal: bool = True
     sweep_interval_s: float = Field(default=60.0, ge=0)
     bus_max_queue: int = Field(default=2_000_000, ge=1000)
     bus_per_tenant_quota: int | None = None
@@ -92,6 +128,10 @@ class Settings(BaseModel):
         if self.auth_mode == "oidc":
             if not self.oidc_issuer or not self.oidc_audience:
                 raise SettingsError("OIDC auth requires AEGIS_OIDC_ISSUER and AEGIS_OIDC_AUDIENCE")
+            for name, url in (("AEGIS_OIDC_ISSUER", self.oidc_issuer), ("AEGIS_OIDC_JWKS_URL", self.oidc_jwks_url)):
+                if url is not None and not secure_idp_url(url, production=self.is_production):
+                    raise SettingsError(f"{name} must use https:// (plain http is accepted only for a loopback "
+                                        "identity provider outside production)")
             bad = [a for a in self.oidc_algorithms if not a.startswith(("RS", "PS", "ES"))]
             if bad or not self.oidc_algorithms:
                 raise SettingsError("OIDC algorithms must be asymmetric (RS*/PS*/ES*)")
@@ -102,6 +142,9 @@ class Settings(BaseModel):
         if self.enforcement_adapter == "webhook" and (not self.webhook_url or not self.webhook_secret):
             raise SettingsError("AEGIS_ENFORCEMENT_ADAPTER=webhook requires AEGIS_WEBHOOK_URL and "
                                 "AEGIS_WEBHOOK_SECRET")
+        if self.enforcement_adapter != "dryrun" and not self.enforcement_tenant:
+            raise SettingsError(f"AEGIS_ENFORCEMENT_ADAPTER={self.enforcement_adapter} requires "
+                                "AEGIS_ENFORCEMENT_TENANT (the single tenant allowed to enforce)")
         if self.demo_tenant is not None and self.auth_mode != "dev":
             raise SettingsError("AEGIS_DEMO_TENANT is only valid with AEGIS_AUTH_MODE=dev")
         return self
@@ -121,6 +164,10 @@ class Settings(BaseModel):
     def trusted_dir(self) -> Path:
         """Trusted public keys: ``policy/``, ``ioc/``, ``ledger/`` (``<key_id>.pem`` each)."""
         return self.data_dir / "trusted"
+
+    @property
+    def resolved_ledger_anchor_path(self) -> Path:
+        return self.ledger_anchor_path or (self.data_dir / "anchors" / "ledger-heads.jsonl")
 
     @property
     def raw_dir(self) -> Path:
@@ -170,6 +217,9 @@ ENV_VARS: dict[str, str] = {
     "oidc_issuer": "AEGIS_OIDC_ISSUER",
     "oidc_audience": "AEGIS_OIDC_AUDIENCE",
     "oidc_jwks_url": "AEGIS_OIDC_JWKS_URL",
+    "oidc_client_id": "AEGIS_OIDC_CLIENT_ID",
+    "oidc_client_secret": "AEGIS_OIDC_CLIENT_SECRET",
+    "oidc_scopes": "AEGIS_OIDC_SCOPES",
     "oidc_tenant_claim": "AEGIS_OIDC_TENANT_CLAIM",
     "oidc_roles_claim": "AEGIS_OIDC_ROLES_CLAIM",
     "oidc_algorithms": "AEGIS_OIDC_ALGORITHMS",
@@ -181,7 +231,9 @@ ENV_VARS: dict[str, str] = {
     "model_require_signature": "AEGIS_MODEL_REQUIRE_SIGNATURE",
     "web_dist": "AEGIS_WEB_DIST",
     "ledger_key_id": "AEGIS_LEDGER_KEY_ID",
+    "ledger_anchor_path": "AEGIS_LEDGER_ANCHOR_PATH",
     "enforcement_adapter": "AEGIS_ENFORCEMENT_ADAPTER",
+    "enforcement_tenant": "AEGIS_ENFORCEMENT_TENANT",
     "rpz_zone_path": "AEGIS_RPZ_ZONE_PATH",
     "rpz_reload_command": "AEGIS_RPZ_RELOAD_COMMAND",
     "webhook_url": "AEGIS_WEBHOOK_URL",
@@ -195,13 +247,14 @@ ENV_VARS: dict[str, str] = {
     "log_level": "AEGIS_LOG_LEVEL",
     "log_format": "AEGIS_LOG_FORMAT",
     "llm_enabled": "AEGIS_LLM_ENABLED",
+    "detection_journal": "AEGIS_DETECTION_JOURNAL",
     "sweep_interval_s": "AEGIS_SWEEP_INTERVAL_S",
     "bus_max_queue": "AEGIS_BUS_MAX_QUEUE",
     "bus_per_tenant_quota": "AEGIS_BUS_PER_TENANT_QUOTA",
     "demo_tenant": "AEGIS_DEMO_TENANT",
 }
 
-_BOOL_FIELDS = {"model_require_signature", "llm_enabled"}
+_BOOL_FIELDS = {"model_require_signature", "llm_enabled", "detection_journal"}
 _TUPLE_FIELDS = {"oidc_algorithms", "cors_origins"}
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
@@ -224,4 +277,4 @@ def _parse(field_name: str, raw: str) -> Any:
     return raw
 
 
-__all__ = ["ENV_VARS", "REPO_ROOT", "AdapterKind", "AuthMode", "Settings", "SettingsError"]
+__all__ = ["ENV_VARS", "REPO_ROOT", "AdapterKind", "AuthMode", "Settings", "SettingsError", "secure_idp_url"]

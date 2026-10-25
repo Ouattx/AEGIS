@@ -32,8 +32,10 @@ If something fails on stage, restart the container: every start rebuilds the sam
 
 1. Point at the header pills: **SHADOW MODE** and **LEDGER VERIFIED**.
    > "Shadow mode: read-only. And every action in this system is in a signed, hash-chained ledger, verified right now."
-2. KPI row: **Devices protected**, **Alerts raised** (note the abstained count under it), **False alerts / 10k
-   device-days** with its **upper bound**, **Live enforcements 0**.
+2. Point at the red **Synthetic lab demo** banner first: everything on screen comes from the synthetic lab
+   corpus and a simulated analyst. Never present these figures as field results.
+   KPI row: **Devices monitored**, **Alerts raised** (note the abstained count under it), **False alerts / 10k
+   device-days** with its **95% upper bound and n**, **Live enforcements 0**.
    > "We report false alerts per ten thousand device-days, with an upper bound even when we've seen zero, because
    > your NOC cares about how often we're wrong, not about an accuracy percentage."
 3. **Alert rate by device class** panel: read the footnote aloud: *"Device class selects a comparison

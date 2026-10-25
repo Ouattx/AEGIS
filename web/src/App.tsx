@@ -9,7 +9,7 @@ import { CaseDetailPage } from "./pages/CaseDetail";
 import { CasesPage } from "./pages/Cases";
 import { FindingsPage } from "./pages/Findings";
 import { LedgerPage } from "./pages/Ledger";
-import { LoginPage } from "./pages/Login";
+import { LoginPage, OidcCallbackPage } from "./pages/Login";
 import { OverviewPage } from "./pages/Overview";
 import { ReportsPage } from "./pages/Reports";
 import { SettingsPage } from "./pages/Settings";
@@ -45,6 +45,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/auth/callback" element={<OidcCallbackPage />} />
       <Route
         element={
           <RequireAuth>

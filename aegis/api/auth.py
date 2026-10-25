@@ -37,7 +37,7 @@ from typing import Any, Callable
 import httpx
 import jwt
 
-from aegis.api.settings import Settings
+from aegis.api.settings import Settings, secure_idp_url
 
 log = logging.getLogger(__name__)
 
@@ -243,6 +243,8 @@ class JWKSCache:
         url = resp.json().get("jwks_uri")
         if not isinstance(url, str) or not url.startswith(("https://", "http://")):
             raise AuthError("jwks_unavailable", "issuer discovery document has no jwks_uri")
+        if not secure_idp_url(url, production=self._settings.is_production):
+            raise AuthError("jwks_unavailable", "discovered jwks_uri must use https")
         self._jwks_url = url
         return url
 
@@ -288,6 +290,93 @@ class JWKSCache:
             if key is None:
                 raise AuthError("unknown_key", "token signed with an unknown key")
             return key
+
+
+class OIDCLogin:
+    """Browser sign-in support for the console: issuer discovery and a token relay.
+
+    The console runs the authorization-code flow with PKCE (it generates and keeps
+    the code verifier). The code-for-token exchange and refreshes go through
+    :meth:`exchange` so the console needs no cross-origin access to the IdP (strict
+    CSP) and a confidential client secret, when an IdP requires one, stays server-side.
+    The relay adds nothing to the security decision: PKCE binds the code to the
+    browser that started the flow, and every resulting access token is verified on
+    each API call like any other.
+    """
+
+    def __init__(self, settings: Settings, *, client: httpx.Client | None = None,
+                 monotonic: Callable[[], float] = time.monotonic):
+        self._settings = settings
+        self._client = client or httpx.Client(timeout=10.0, follow_redirects=False)
+        self._mono = monotonic
+        self._lock = threading.Lock()
+        self._doc: dict[str, Any] | None = None
+        self._fetched_at = 0.0
+
+    @property
+    def enabled(self) -> bool:
+        return self._settings.auth_mode == "oidc" and bool(self._settings.oidc_client_id)
+
+    def discovery(self) -> dict[str, Any]:
+        """The issuer's OpenID configuration (cached like the JWKS)."""
+        with self._lock:
+            if self._doc is not None and self._mono() - self._fetched_at < self._settings.jwks_cache_ttl_s:
+                return self._doc
+            issuer = (self._settings.oidc_issuer or "").rstrip("/")
+            try:
+                resp = self._client.get(f"{issuer}/.well-known/openid-configuration")
+                resp.raise_for_status()
+                doc = resp.json()
+            except (httpx.HTTPError, ValueError) as exc:
+                if self._doc is not None:
+                    return self._doc
+                raise AuthError("oidc_unavailable", "identity provider discovery failed") from exc
+            for key in ("authorization_endpoint", "token_endpoint"):
+                url = doc.get(key) if isinstance(doc, dict) else None
+                if not isinstance(url, str) or not secure_idp_url(url, production=self._settings.is_production):
+                    raise AuthError("oidc_unavailable", f"discovery document has no usable {key}")
+            self._doc, self._fetched_at = doc, self._mono()
+            return doc
+
+    def public_config(self) -> dict[str, Any]:
+        doc = self.discovery()
+        end = doc.get("end_session_endpoint")
+        return {"client_id": self._settings.oidc_client_id, "scopes": self._settings.oidc_scopes,
+                "authorization_endpoint": doc["authorization_endpoint"],
+                "end_session_endpoint": end if isinstance(end, str) else None}
+
+    def exchange(self, form: dict[str, str]) -> dict[str, Any]:
+        """Relay an ``authorization_code`` (with PKCE verifier) or ``refresh_token`` grant."""
+        grant = form.get("grant_type")
+        if grant == "authorization_code":
+            required = ("code", "code_verifier", "redirect_uri")
+        elif grant == "refresh_token":
+            required = ("refresh_token",)
+        else:
+            raise AuthError("unsupported_grant", "grant_type must be authorization_code or refresh_token")
+        if any(not form.get(k) for k in required):
+            raise AuthError("invalid_request", "missing grant parameters")
+        body = {k: form[k] for k in ("grant_type",) + required}
+        body["client_id"] = str(self._settings.oidc_client_id)
+        if self._settings.oidc_client_secret:
+            body["client_secret"] = self._settings.oidc_client_secret
+        try:
+            resp = self._client.post(self.discovery()["token_endpoint"], data=body,
+                                     headers={"Accept": "application/json"})
+        except httpx.HTTPError as exc:
+            raise AuthError("oidc_unavailable", "identity provider unreachable") from exc
+        try:
+            data = resp.json()
+        except ValueError:
+            data = {}
+        if resp.status_code != 200 or not isinstance(data, dict) or not isinstance(data.get("access_token"), str):
+            code = data.get("error") if isinstance(data, dict) and isinstance(data.get("error"), str) else "denied"
+            raise AuthError("token_exchange_failed", f"identity provider refused the grant ({code[:64]})")
+        out = {k: data[k] for k in ("access_token", "refresh_token", "id_token", "token_type")
+               if isinstance(data.get(k), str)}
+        if isinstance(data.get("expires_in"), (int, float)):
+            out["expires_in"] = int(data["expires_in"])
+        return out
 
 
 class OIDCVerifier:
@@ -337,6 +426,6 @@ class Authenticator:
 
 
 __all__ = [
-    "ALL_ROLES", "AuthError", "Authenticator", "DEV_AUDIENCE", "DevVerifier", "JWKSCache",
+    "ALL_ROLES", "AuthError", "Authenticator", "DEV_AUDIENCE", "DevVerifier", "JWKSCache", "OIDCLogin",
     "OIDCVerifier", "Principal", "Role", "mint_dev_token", "parse_roles", "resolve_dev_secret",
 ]

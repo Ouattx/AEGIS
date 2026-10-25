@@ -13,5 +13,8 @@
 For the DPO and counsel: [../compliance/](../compliance/). For the operator's engineers:
 [../INSTALL.md](../INSTALL.md) and [../OPERATOR_INTEGRATION.md](../OPERATOR_INTEGRATION.md).
 
-Before anything leaves the company: no `[FOUNDER TO SET]` placeholder remains, the claims guide review is
-done, and every legal template has been through counsel.
+Before anything leaves the company: render the kit from the commercial configuration
+(`python deploy/tools/render_sales_kit.py --config commercial.toml --out dist/sales`, starting from
+[commercial.example.toml](commercial.example.toml)); the renderer refuses while any `FOUNDER TO SET` value is
+missing, so only rendered copies are ever sent. The claims guide review must be done, and every legal template
+must have been through counsel.

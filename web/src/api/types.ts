@@ -50,12 +50,30 @@ export interface ListOf<T> {
   total: number;
 }
 
+export interface OidcLoginConfig {
+  client_id: string;
+  scopes: string;
+  authorization_endpoint: string;
+  end_session_endpoint: string | null;
+}
+
 export interface AuthConfig {
   auth_mode: "dev" | "oidc";
   oidc_issuer: string | null;
   oidc_audience: string | null;
+  /** browser sign-in (authorization code + PKCE) when the deployment registers a console client */
+  oidc_login?: OidcLoginConfig | null;
+  oidc_login_error?: string | null;
   demo: boolean;
   roles: Role[];
+}
+
+export interface TokenResponse {
+  access_token: string;
+  refresh_token?: string;
+  id_token?: string;
+  token_type?: string;
+  expires_in?: number;
 }
 
 export interface DemoToken {
@@ -553,6 +571,8 @@ export interface PovReport {
     unresolved_device_days: number;
     per_10k: number | null;
     per_10k_upper: number | null;
+    /** one-sided 95% exact upper confidence bound of the measured rate */
+    per_10k_ci_upper?: number | null;
     per_device_class: Record<string, number | null>;
     budget_per_10k: number | null;
     within_budget: boolean | null;
@@ -605,13 +625,21 @@ export interface PovReport {
   };
   validation: {
     source: string;
+    device_days?: number;
+    positive_device_days?: number;
     precision: number | null;
     recall: number | null;
+    precision_ci?: [number, number] | null;
+    recall_ci?: [number, number] | null;
+    false_alerts_per_10k_ci_upper?: number | null;
     tp: number;
     fp: number;
     fn: number;
     tn: number;
   } | null;
+  /** true when telemetry or dispositions are synthetic (lab corpus, simulated analyst) */
+  synthetic?: boolean;
+  synthetic_notice?: string | null;
   fingerprint: string;
   limitations: string[];
 }

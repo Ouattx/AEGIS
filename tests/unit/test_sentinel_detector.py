@@ -314,3 +314,45 @@ def test_idle_entity_state_is_pruned(model):
     s.flush(later + timedelta(hours=2))
     assert ("t1", "p_old") not in s._streak and ("t1", "p_new") in s._streak
     assert s.prune(later + timedelta(days=60)) >= 1
+
+
+def test_alert_latency_is_measured_for_late_exports(corpus, model, bundle):
+    """Telemetry exported three days late: created_at is wall time (so the old 'window end'
+    latency would read days, or 0 without a clock), while alert latency counts only the
+    pipeline time after the data arrived and is strictly positive."""
+    from aegis.reports.pov import alert_latency_s
+
+    received = corpus.end + timedelta(days=3)
+    events = [e.model_copy(update={"ingested_at": received}) for e in corpus.events[: len(corpus.events) // 2]]
+    s = Sentinel(model, bundle, clock=lambda: received + timedelta(seconds=2))
+    findings = [f for f in s.process_batch(events) if f.verdict in ALERT]
+    assert findings
+    for f in findings:
+        assert f.ingested_at == received
+        assert (f.created_at - f.observed_window_end) > timedelta(days=2)
+        assert alert_latency_s(f) == pytest.approx(2.0)
+
+
+def test_warm_restart_reproduces_detection_exactly(corpus, model, bundle):
+    """Replaying already-processed telemetry rebuilds windows, persistence, change points and
+    suppression: the restarted detector emits exactly what an uninterrupted one emits."""
+    events = sorted(corpus.events, key=lambda e: (e.observed_at, e.event_id))
+    cut = len(events) // 2
+
+    def key(f):
+        return (f.entity_pseudonym, f.label, f.verdict.value, f.observed_window_end)
+
+    straight = Sentinel(model, bundle)
+    before = straight.process_batch(events[:cut])
+    after = straight.process_batch(events[cut:]) + straight.flush(corpus.end)
+
+    restarted = Sentinel(model, bundle)
+    assert restarted.warm(events[:cut]) > 0
+    assert restarted.stats.findings == 0  # warming never emits
+    restarted.seed_suppression(before)
+    resumed = restarted.process_batch(events[cut:]) + restarted.flush(corpus.end)
+    assert sorted(map(key, resumed)) == sorted(map(key, after))
+
+    cold = Sentinel(model, bundle)
+    cold_after = cold.process_batch(events[cut:]) + cold.flush(corpus.end)
+    assert sorted(map(key, cold_after)) != sorted(map(key, after))  # a cold start really differs

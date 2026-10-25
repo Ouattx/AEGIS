@@ -20,10 +20,17 @@ Guards (all deterministic; no model output is consulted):
   IOC hit alone no longer suffices, supporting origins must outnumber
   contradicting ones, and only a human may verify (contradictory feeds downgrade).
 * ``PROPOSED``: an authorization assessment for a stored action of this case.
-* ``APPROVED``: a human approver and an assessment that allowed the action.
+  The case is then bound to that action: approval, denial and execution apply
+  to it only.
+* ``APPROVED``: a human approver and an assessment that allowed the action the
+  case was proposed for.
 * ``EXECUTED``: an operator policy whose signature verifies against the trusted
   keyring (active mode, legal signoff, valid now, action type allowed), an
-  allowed authorization bound to that policy, and a MIRROR result of ``SAFE``.
+  allowed authorization bound to that policy, a MIRROR result of ``SAFE`` and a
+  recorded human approval *of this very action* (an approval never carries over
+  to a sibling action of the same case).
+* ``ROLLED_BACK`` / ``EXPIRED`` from ``EXECUTED``: no enforcement for the case may
+  still be live (checked through the optional ``live_execution_probe``).
 
 Agents (actors ``agent:*``) can never change case state. Every transition, and
 case creation, is written to the provenance ledger before the case document is
@@ -36,6 +43,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterable, Literal
 
+from pydantic import BaseModel, ConfigDict
+
+from aegis.contracts.canonical import sha256_hex
 from aegis.contracts.models import (
     AuthorizationDecision,
     Case,
@@ -44,6 +54,7 @@ from aegis.contracts.models import (
     Evidence,
     EvidenceKind,
     Finding,
+    FindingStatus,
     MirrorResult,
     MirrorVerdict,
     OperatorPolicy,
@@ -99,6 +110,14 @@ SIGNED_IOC_FLAG = "signed_bundle_verified"
 AGENT_APPENDED_KEY = "appended_by"
 
 CASE_OPENED = "case_opened"
+CASE_FINDING_ATTACHED = "case_finding_attached"
+FINDING_STATUS_ENTRY = "finding_status"
+
+#: States of a case that a new finding on the same device joins instead of opening a
+#: new case (one incident, one case). Decided (REJECTED / INCONCLUSIVE) and terminal
+#: cases do not absorb new findings: a fresh case is opened.
+ATTACHABLE_STATES = frozenset({S.NEW, S.TRIAGE, S.INVESTIGATING, S.VERIFIED, S.PROPOSED, S.APPROVED,
+                               S.EXECUTED})
 CASE_REVIEW = "case_counter_hypothesis_review"
 CASE_EVIDENCE = "case_evidence_attached"
 
@@ -109,6 +128,30 @@ class GuardError(PermissionError):
     def __init__(self, message: str, failed: Iterable[str] = ()):
         super().__init__(message)
         self.failed: list[str] = list(failed)
+
+
+class EntityCaseIndex(BaseModel):
+    """Latest case opened for a device (``doc_id = <tenant>:<entity>``): de-duplication index."""
+    model_config = ConfigDict(extra="forbid")
+
+    doc_id: str
+    tenant_id: str
+    entity_pseudonym: str
+    case_id: str
+
+
+def finding_status_for(case: Case) -> FindingStatus | None:
+    """Finding status implied by the case: ``None`` keeps the findings' current status."""
+    reached = {d.to_state for d in case.decisions} | {case.state}
+    if reached & {S.VERIFIED, S.PROPOSED, S.APPROVED, S.DENIED, S.EXECUTED, S.ROLLED_BACK}:
+        return FindingStatus.VERIFIED
+    if S.REJECTED in reached:
+        return FindingStatus.REJECTED
+    if case.state is S.CLOSED:
+        return None
+    if reached & {S.TRIAGE, S.INVESTIGATING, S.INCONCLUSIVE}:
+        return FindingStatus.TRIAGE
+    return None
 
 
 def is_agent(actor: str) -> bool:
@@ -232,8 +275,12 @@ class CaseService:
 
     def __init__(self, docstore: DocStore, evidence_store: EvidenceStore, ledger: Ledger, *,
                  keyring: KeyRing | None = None, atlas: Any | None = None,
-                 clock: Callable[[], datetime] | None = None):
+                 clock: Callable[[], datetime] | None = None,
+                 live_execution_probe: Callable[[str, str], list[str]] | None = None):
         self._docs = docstore
+        #: ``(tenant_id, case_id) -> live action ids``; leaving EXECUTED is refused while
+        #: any enforcement for the case is still in place
+        self._live_probe = live_execution_probe
         self._evidence = evidence_store
         self._ledger = ledger
         self._keyring = keyring
@@ -241,6 +288,7 @@ class CaseService:
         self._clock = clock or _now
         self._locks: dict[tuple[str, str], threading.Lock] = {}
         self._locks_guard = threading.Lock()
+        self._indexed_tenants: set[str] = set()
 
     @property
     def ledger(self) -> Ledger:
@@ -301,11 +349,99 @@ class CaseService:
         return str(uuid.uuid5(uuid.NAMESPACE_URL, f"aegis:case:{tenant_id}:{finding_id}"))
 
     def open_case(self, finding: Finding, *, actor: str = "system") -> Case:
-        """Open (idempotently) a case for a finding that requires review."""
+        """Open (idempotently) a case for a finding that requires review.
+
+        One incident, one case: while the device already has a case in an
+        :data:`ATTACHABLE_STATES` state, the finding and its evidence are appended to
+        that case (ledger ``case_finding_attached``) instead of opening another one.
+        """
         if is_agent(actor):
             raise GuardError("agents cannot open cases", ["agent_actor"])
         if finding.verdict is Verdict.BENIGN:
             raise ValueError("benign findings do not open cases")
+        tenant = finding.tenant_id
+        with self._lock(tenant, "entity:" + finding.entity_pseudonym):
+            open_case = self._open_case_for_entity(tenant, finding.entity_pseudonym)
+            if open_case is not None:
+                if finding.finding_id in open_case.finding_ids:
+                    return open_case
+                return self._attach_finding(open_case, finding, actor)
+            case = self._new_case(finding, actor)
+            self._docs.put(EntityCaseIndex(doc_id=f"{tenant}:{finding.entity_pseudonym}", tenant_id=tenant,
+                                           entity_pseudonym=finding.entity_pseudonym, case_id=case.case_id))
+            return case
+
+    def case_for_finding(self, tenant_id: str, finding_id: str) -> Case | None:
+        """The case a finding belongs to (the case it opened, or the one it was attached to)."""
+        own = self.get(tenant_id, self.case_id_for(tenant_id, finding_id))
+        if own is not None and finding_id in own.finding_ids:
+            return own
+        f = self._docs.get(Finding, tenant_id, finding_id)
+        if f is not None:
+            idx = self._docs.get(EntityCaseIndex, tenant_id, f"{tenant_id}:{f.entity_pseudonym}")
+            if idx is not None:
+                c = self.get(tenant_id, idx.case_id)
+                if c is not None and finding_id in c.finding_ids:
+                    return c
+        for c in self._docs.iter_all(Case, tenant_id):
+            if finding_id in c.finding_ids:
+                return c
+        return None
+
+    def _open_case_for_entity(self, tenant_id: str, entity: str) -> Case | None:
+        self._ensure_entity_index(tenant_id)
+        idx = self._docs.get(EntityCaseIndex, tenant_id, f"{tenant_id}:{entity}")
+        if idx is None:
+            return None
+        case = self.get(tenant_id, idx.case_id)
+        return case if case is not None and case.state in ATTACHABLE_STATES else None
+
+    def _ensure_entity_index(self, tenant_id: str) -> None:
+        """Index cases stored before de-duplication existed (one pass per tenant and process)."""
+        if tenant_id in self._indexed_tenants:
+            return
+        with self._locks_guard:
+            if tenant_id in self._indexed_tenants:
+                return
+            latest: dict[str, Case] = {}
+            for c in self._docs.iter_all(Case, tenant_id):
+                if c.state not in ATTACHABLE_STATES:
+                    continue
+                for fid in c.finding_ids:
+                    f = self._docs.get(Finding, tenant_id, fid)
+                    if f is None:
+                        continue
+                    prev = latest.get(f.entity_pseudonym)
+                    if prev is None or _aware(c.created_at) > _aware(prev.created_at):
+                        latest[f.entity_pseudonym] = c
+            for entity, c in latest.items():
+                if self._docs.get(EntityCaseIndex, tenant_id, f"{tenant_id}:{entity}") is None:
+                    self._docs.put(EntityCaseIndex(doc_id=f"{tenant_id}:{entity}", tenant_id=tenant_id,
+                                                   entity_pseudonym=entity, case_id=c.case_id))
+            self._indexed_tenants.add(tenant_id)
+
+    def _attach_finding(self, case: Case, finding: Finding, actor: str) -> Case:
+        with self._lock(case.tenant_id, case.case_id):
+            case = self.require(case.tenant_id, case.case_id)
+            if finding.finding_id in case.finding_ids:
+                return case
+            new_ev = [i for i in dict.fromkeys(finding.evidence_ids + finding.counterevidence_ids)
+                      if i not in case.evidence_ids]
+            severity = max(case.severity, _severity(finding), key=lambda s: _SEVERITY_ORDER[s])
+            self._ledger.append(case.tenant_id, CASE_FINDING_ATTACHED, case.case_id, {
+                "event": CASE_FINDING_ATTACHED, "case_id": case.case_id, "finding_id": finding.finding_id,
+                "label": finding.label, "verdict": finding.verdict.value, "evidence_ids": new_ev,
+                "model_version": finding.detector_version, "severity": severity, "actor": actor})
+            case = case.model_copy(update={
+                "finding_ids": case.finding_ids + [finding.finding_id],
+                "evidence_ids": case.evidence_ids + new_ev,
+                "model_versions": list(dict.fromkeys(case.model_versions + [finding.detector_version])),
+                "severity": severity, "updated_at": self._clock()}, deep=True)
+            self._docs.put(case)
+            self._sync_finding_status(case, actor)
+            return case
+
+    def _new_case(self, finding: Finding, actor: str) -> Case:
         case_id = self.case_id_for(finding.tenant_id, finding.finding_id)
         with self._lock(finding.tenant_id, case_id):
             existing = self.get(finding.tenant_id, case_id)
@@ -430,10 +566,21 @@ class CaseService:
                 "finding_ids": case.finding_ids, "evidence_ids": case.evidence_ids,
                 "model_versions": case.model_versions, "guards": context,
             }
+            action_id: str | None = None
+            authz_sha: str | None = None
+            if authorization is not None:
+                # top-level link so a replay of the case follows the action, its authorization
+                # assessments and its executions (snapshot.replay follows *_id keys); the
+                # signed entry also binds an approval to exactly this action
+                action_id = authorization.action_id
+                authz_sha = sha256_hex(authorization)
+                payload["action_id"] = action_id
+                payload["authorization_sha256"] = authz_sha
             entry = self._ledger.append(tenant_id, EntryType.CASE_TRANSITION, case_id, payload)
             decision = CaseDecision(from_state=case.state, to_state=to_state, actor=actor,
                                     reason=reason.strip()[:2000], at=now,
-                                    ledger_entry_hash=entry.entry_hash)
+                                    ledger_entry_hash=entry.entry_hash, action_id=action_id,
+                                    authorization_sha256=authz_sha)
             update: dict[str, Any] = {"state": to_state, "updated_at": now,
                                       "decisions": case.decisions + [decision]}
             if to_state in MAJOR_TRANSITIONS:
@@ -444,6 +591,64 @@ class CaseService:
                     self._atlas.record_snapshot(tenant_id, reason=f"case_transition:{to_state.value}",
                                                 subject_id=case_id)
             case = case.model_copy(update=update, deep=True)
+            self._docs.put(case)
+            self._sync_finding_status(case, actor)
+            return case
+
+    def _sync_finding_status(self, case: Case, actor: str) -> None:
+        """Mirror the case outcome onto its findings' ``status`` (ledgered once per change)."""
+        status = finding_status_for(case)
+        if status is None:
+            return
+        changed: list[str] = []
+        for fid in case.finding_ids:
+            f = self._docs.get(Finding, case.tenant_id, fid)
+            if f is None or f.status is status:
+                continue
+            self._docs.put(f.model_copy(update={"status": status}))
+            changed.append(fid)
+        if changed:
+            self._ledger.append(case.tenant_id, FINDING_STATUS_ENTRY, case.case_id, {
+                "case_id": case.case_id, "case_state": case.state.value, "finding_ids": changed,
+                "status": status.value, "actor": actor})
+
+    def rebind_proposal(self, tenant_id: str, case_id: str, actor: str, reason: str, *,
+                        authorization: AuthorizationDecision) -> Case:
+        """Re-point a PROPOSED (not yet approved) case at another of its actions.
+
+        Recorded as a ``PROPOSED -> PROPOSED`` decision carrying the new action id, so
+        any later approval, denial or execution applies to that action only. Once a
+        case is APPROVED its action can no longer change.
+        """
+        if not isinstance(reason, str) or not reason.strip():
+            raise GuardError("a rebinding requires a reason", ["missing_reason"])
+        with self._lock(tenant_id, case_id):
+            case = self.require(tenant_id, case_id)
+            failed: list[str] = []
+            ctx: dict[str, Any] = {}
+            if is_agent(actor) or not actor.strip():
+                failed.append("agent_cannot_change_case_state")
+            if case.state is not S.PROPOSED:
+                failed.append(f"rebind_requires_proposed_state:{case.state.value}")
+            failed += self._check_assessment(case, authorization, ctx, self._clock())
+            if failed:
+                self._ledger.append(tenant_id, "case_transition_refused", case_id, {
+                    "case_id": case_id, "from_state": case.state.value, "to_state": S.PROPOSED.value,
+                    "actor": actor, "reason": reason.strip()[:2000], "failed_checks": failed,
+                    "action_id": authorization.action_id})
+                raise GuardError("proposal rebinding refused: " + ", ".join(failed), failed)
+            now = self._clock()
+            authz_sha = sha256_hex(authorization)
+            entry = self._ledger.append(tenant_id, EntryType.CASE_TRANSITION, case_id, {
+                "event": "proposal_rebound", "case_id": case_id, "from_state": S.PROPOSED.value,
+                "to_state": S.PROPOSED.value, "actor": actor, "reason": reason.strip()[:2000],
+                "previous_action_id": self.bound_action_id(case), "action_id": authorization.action_id,
+                "authorization_sha256": authz_sha, "guards": ctx})
+            decision = CaseDecision(from_state=S.PROPOSED, to_state=S.PROPOSED, actor=actor,
+                                    reason=reason.strip()[:2000], at=now, ledger_entry_hash=entry.entry_hash,
+                                    action_id=authorization.action_id, authorization_sha256=authz_sha)
+            case = case.model_copy(update={"decisions": case.decisions + [decision], "updated_at": now},
+                                   deep=True)
             self._docs.put(case)
             return case
 
@@ -472,17 +677,61 @@ class CaseService:
         elif to is S.PROPOSED:
             failed += self._check_assessment(case, authorization, ctx, now)
 
-        elif to is S.APPROVED:
-            if not is_human(actor):
+        elif to in (S.APPROVED, S.DENIED):
+            if to is S.APPROVED and not is_human(actor):
                 failed.append("approval_requires_human_approver")
-            failed += self._check_assessment(case, authorization, ctx, now)
-            if authorization is not None and not authorization.allowed:
+            if to is S.APPROVED or authorization is not None:
+                failed += self._check_assessment(case, authorization, ctx, now)
+                failed += self._check_bound_action(case, authorization)
+            if to is S.APPROVED and authorization is not None and not authorization.allowed:
                 failed.append("authorization_not_allowed")
 
         elif to is S.EXECUTED:
             failed += self._check_execution(case, authorization, mirror, policy, ctx, now)
 
+        elif case.state is S.EXECUTED and to in (S.ROLLED_BACK, S.EXPIRED):
+            live = self._live_actions(case)
+            if live is None and self._live_probe is not None:
+                failed.append("live_execution_state_unknown")
+            elif live:
+                ctx["live_actions"] = live
+                failed.append("enforcement_still_live")
+
         return failed, ctx
+
+    def _live_actions(self, case: Case) -> list[str] | None:
+        if self._live_probe is None:
+            return None
+        try:
+            return list(self._live_probe(case.tenant_id, case.case_id))
+        except Exception:  # an unanswerable probe fails closed
+            return None
+
+    @staticmethod
+    def bound_action_id(case: Case) -> str | None:
+        """The action the case was last proposed for (``None`` before PROPOSED)."""
+        for d in reversed(case.decisions):
+            if d.to_state is S.PROPOSED:
+                return d.action_id
+        return None
+
+    @staticmethod
+    def approved_action_id(case: Case) -> str | None:
+        """The action of the latest human approval recorded on the case."""
+        for d in reversed(case.decisions):
+            if d.to_state is S.APPROVED and is_human(d.actor):
+                return d.action_id
+        return None
+
+    def _check_bound_action(self, case: Case, authorization: AuthorizationDecision | None) -> list[str]:
+        if authorization is None:
+            return []
+        bound = self.bound_action_id(case)
+        if bound is None:
+            return ["proposed_action_unknown"]
+        if bound != authorization.action_id:
+            return ["action_is_not_the_proposed_action"]
+        return []
 
     def _check_assessment(self, case: Case, authorization: AuthorizationDecision | None,
                           ctx: dict[str, Any], now: datetime) -> list[str]:
@@ -509,8 +758,12 @@ class CaseService:
         failed = self._check_assessment(case, authorization, ctx, now)
         if authorization is not None and not authorization.allowed:
             failed.append("authorization_not_allowed")
+        approved = self.approved_action_id(case)
         if not any(d.to_state is S.APPROVED and is_human(d.actor) for d in case.decisions):
             failed.append("no_human_approval_recorded")
+        elif authorization is not None and approved != authorization.action_id:
+            # an approval authorizes exactly one action: never a sibling of the same case
+            failed.append("action_not_approved")
         # signed policy
         if policy is None:
             failed.append("signed_policy_missing")
@@ -550,9 +803,25 @@ class CaseService:
         return failed
 
 
+_SEVERITY_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+
+#: Threat classes whose impact on third parties (botnet C2, DDoS, proxying abuse) raises triage priority.
+HIGH_IMPACT_LABELS = frozenset({"c2_beaconing", "ddos_bot", "residential_proxy"})
+
+
 def _severity(finding: Finding) -> Literal["low", "medium", "high", "critical"]:
+    """Triage severity from verification-grade evidence and threat class, never from the score alone.
+
+    * critical - MALICIOUS backed by indicator evidence from >= 2 independent origins;
+    * high     - any other MALICIOUS (a verified signed-indicator contact);
+    * medium   - SUSPICIOUS with an indicator match, or of a high-impact threat class;
+    * low      - other SUSPICIOUS, and ABSTAIN held for review.
+    """
+    comps = finding.component_scores or {}
+    origins = comps.get("ioc_independent_origins") or 0.0
+    ioc = comps.get("ioc") or 0.0
     if finding.verdict is Verdict.MALICIOUS:
-        return "critical" if finding.score >= 0.9 else "high"
+        return "critical" if origins >= 2 else "high"
     if finding.verdict is Verdict.SUSPICIOUS:
-        return "medium" if finding.score >= 0.5 else "low"
+        return "medium" if (ioc > 0 or finding.label in HIGH_IMPACT_LABELS) else "low"
     return "low"

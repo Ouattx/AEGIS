@@ -31,6 +31,8 @@ class SourceIn(_In):
     format: str | None = Field(default=None, max_length=64)
     entity_field: Literal["auto", "device_id", "src_ip"] = "auto"
     assume_utc_for_naive: bool = False
+    subscriber_prefixes: list[str] = Field(default_factory=list, max_length=4096)
+    flow_direction: Literal["auto", "biflow", "uniflow"] = "auto"
 
 
 class EventsIn(_In):
@@ -96,3 +98,35 @@ class ExecuteIn(_In):
 
 __all__ = ["AuthorizeIn", "DecisionIn", "EventsIn", "ExecuteIn", "NoteIn", "PageOut", "ProposeIn", "ReviewIn",
            "SourceIn", "TransitionIn"]
+
+
+class HealthIn(_In):
+    """Legitimate-traffic health sample for a live action (resolver / NOC telemetry)."""
+    requests: int = Field(ge=0, le=10_000_000_000)
+    errors: int = Field(ge=0, le=10_000_000_000)
+
+    @model_validator(mode="after")
+    def _bounded(self) -> "HealthIn":
+        if self.errors > self.requests:
+            raise ValueError("errors cannot exceed requests")
+        return self
+
+
+class BreakerResetIn(_In):
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class ReportInputsIn(_In):
+    """PoV report inputs; keys are validated against ``CostInputs`` / ``AnalystEffortModel``."""
+    cost: dict[str, Any] = Field(default_factory=dict)
+    effort: dict[str, Any] = Field(default_factory=dict)
+
+
+class TokenGrantIn(_In):
+    """Console OIDC grant relayed to the IdP token endpoint."""
+    grant_type: Literal["authorization_code", "refresh_token"]
+    code: str | None = Field(default=None, max_length=4096)
+    code_verifier: str | None = Field(default=None, min_length=43, max_length=128,
+                                      pattern=r"^[A-Za-z0-9._~-]+$")
+    redirect_uri: str | None = Field(default=None, max_length=2048)
+    refresh_token: str | None = Field(default=None, max_length=16384)

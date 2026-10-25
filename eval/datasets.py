@@ -40,6 +40,16 @@ class ScenarioSpec:
     start: str                      # ISO-8601 UTC
     tenant_id: str = "bench"
     description: str = ""
+    #: telemetry degradation applied after generation (harder, more realistic scenarios):
+    #: keep each flow record with this probability (sampled NetFlow), drop reverse
+    #: counters (unidirectional export) and lose this fraction of DNS records
+    flow_sampling: float = 1.0
+    uniflow: bool = False
+    dns_loss: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not 0.0 < self.flow_sampling <= 1.0 or not 0.0 <= self.dns_loss < 1.0:
+            raise ValueError(f"scenario {self.name}: flow_sampling must be in (0, 1] and dns_loss in [0, 1)")
 
     @property
     def start_dt(self) -> datetime:
@@ -56,13 +66,49 @@ class ScenarioSpec:
         """Fields that determine the content (description excluded)."""
         d = asdict(self)
         d.pop("description")
+        # degradation fields only enter the identity when used (older frozen entries stay valid)
+        for k, default in (("flow_sampling", 1.0), ("uniflow", False), ("dns_loss", 0.0)):
+            if d[k] == default:
+                d.pop(k)
         return d
+
+    @property
+    def degraded(self) -> bool:
+        return self.flow_sampling < 1.0 or self.uniflow or self.dns_loss > 0.0
 
 
 def generate(spec: ScenarioSpec) -> Corpus:
-    return generate_corpus(seed=spec.seed, days=spec.days, n_devices=spec.n_devices,
-                           malicious_fraction=spec.malicious_fraction, tenant_id=spec.tenant_id,
-                           start=spec.start_dt)
+    corpus = generate_corpus(seed=spec.seed, days=spec.days, n_devices=spec.n_devices,
+                             malicious_fraction=spec.malicious_fraction, tenant_id=spec.tenant_id,
+                             start=spec.start_dt)
+    return degrade(corpus, spec) if spec.degraded else corpus
+
+
+def degrade(corpus: Corpus, spec: ScenarioSpec) -> Corpus:
+    """Deterministically degrade telemetry the way real exports are degraded.
+
+    Flow records are kept with probability ``flow_sampling`` (1-in-N sampled NetFlow),
+    ``uniflow`` removes reverse byte/packet counters (missing, not zero: v5/v9 exports
+    without bi-flow) and ``dns_loss`` drops resolver records (partial resolver logging).
+    Labels are unchanged: a compromised device-day stays compromised even when little of
+    its traffic survives, which is what makes the scenario hard.
+    """
+    import random
+
+    rng = random.Random(f"degrade:{spec.seed}:{spec.flow_sampling}:{spec.uniflow}:{spec.dns_loss}")
+    kept = []
+    for ev in corpus.events:
+        if ev.flow is not None:
+            if rng.random() >= spec.flow_sampling:
+                continue
+            if spec.uniflow:
+                ev = ev.model_copy(update={"flow": ev.flow.model_copy(update={"bytes_in": None,
+                                                                             "packets_in": None})})
+        elif ev.dns is not None and rng.random() < spec.dns_loss:
+            continue
+        kept.append(ev)
+    corpus.events = kept
+    return corpus
 
 
 def corpus_digest(corpus: Corpus) -> str:
@@ -123,4 +169,4 @@ def freeze(entries: dict[str, tuple[ScenarioSpec, str, dict[str, Any]]], path: P
 
 
 __all__ = ["FROZEN_MANIFEST", "FrozenDatasetMismatch", "MANIFEST_SCHEMA", "ScenarioSpec", "check_frozen",
-           "corpus_digest", "dataset_summary", "freeze", "generate", "load_manifest"]
+           "corpus_digest", "dataset_summary", "degrade", "freeze", "generate", "load_manifest"]
