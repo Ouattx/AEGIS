@@ -1,0 +1,10 @@
+; Spamhaus DROP List 2026/10/20 - (c) 2026 The Spamhaus Project SLU
+; https://www.spamhaus.org/drop/drop.txt
+; Last-Modified: Tue, 20 Oct 2026 10:00:00 GMT
+; Expires: Wed, 21 Oct 2026 11:00:00 GMT
+; SYNTHETIC FIXTURE: documentation ranges only
+198.51.100.0/24 ; SBL900001
+203.0.113.128/25 ; SBL900002
+192.0.2.200/32 ; SBL900003
+10.0.0.0/8 ; SBL900004
+2001:db8:dead::/48 ; SBL900005

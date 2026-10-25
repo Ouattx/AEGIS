@@ -1,0 +1,4 @@
+; Spamhaus EDROP List 2026/10/20 - (c) 2026 The Spamhaus Project SLU
+; Last-Modified: Tue, 20 Oct 2026 10:00:00 GMT
+; SYNTHETIC FIXTURE: documentation ranges only
+192.0.2.128/26 ; SBL900010

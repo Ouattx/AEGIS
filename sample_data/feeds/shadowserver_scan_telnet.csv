@@ -1,0 +1,3 @@
+"timestamp","ip","protocol","port","hostname","tag","asn","geo","device_vendor","device_type","banner"
+"2026-10-20 07:00:00","198.18.10.50","tcp","23","","telnet","64500","ZZ","","","login:"
+"2026-10-20 07:05:00","198.18.10.51","tcp","23","","telnet","64500","ZZ","","","login:"

@@ -1,0 +1,16 @@
+################################################################
+# abuse.ch URLhaus Database Dump (CSV - recent URLs only)      #
+# SYNTHETIC FIXTURE for AEGIS tests: documentation-range       #
+# addresses and reserved example domains only.                 #
+# Last updated: 2026-10-20 12:00:00 (UTC)                      #
+#                                                              #
+# Terms Of Use: https://urlhaus.abuse.ch/api/                  #
+################################################################
+# id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter
+"900001","2026-10-19 08:00:00","http://198.51.100.23/bins/arm7","online","2026-10-20 11:00:00","malware_download","elf,mirai,arm7","https://urlhaus.abuse.ch/url/900001/","synthetic"
+"900002","2026-10-19 09:30:00","http://198.51.100.23/bins/mips","online","2026-10-20 11:30:00","malware_download","elf,mirai,mips","https://urlhaus.abuse.ch/url/900002/","synthetic"
+"900003","2026-10-18 14:00:00","https://update-cdn.badbox.example/apk/core.apk","online","2026-10-20 10:00:00","malware_download","apk,badbox","https://urlhaus.abuse.ch/url/900003/","synthetic"
+"900004","2026-10-10 07:00:00","http://files.payload.test/loader.sh","offline","2026-10-12 07:00:00","malware_download","sh","https://urlhaus.abuse.ch/url/900004/","synthetic"
+"900005","2026-10-19 10:00:00","https://raw.githubusercontent.com/someone/repo/main/x.sh","online","2026-10-20 10:00:00","malware_download","sh","https://urlhaus.abuse.ch/url/900005/","synthetic"
+"900006","2026-10-19 10:00:00","http://10.1.2.3/bad.sh","online","","malware_download","sh","https://urlhaus.abuse.ch/url/900006/","synthetic"
+"900007","2026-10-19 10:00:00","http://bad host/x","online","","malware_download","","https://urlhaus.abuse.ch/url/900007/","synthetic"

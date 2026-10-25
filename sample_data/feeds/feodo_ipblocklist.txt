@@ -1,0 +1,5 @@
+# abuse.ch Feodo Tracker Botnet C2 IP Blocklist
+# SYNTHETIC FIXTURE: documentation-range addresses only
+# Last updated: 2026-10-20 12:00:00 UTC
+192.0.2.15
+192.0.2.16

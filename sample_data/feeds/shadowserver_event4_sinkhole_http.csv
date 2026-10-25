@@ -1,0 +1,5 @@
+"timestamp","protocol","src_ip","src_port","src_asn","src_geo","src_hostname","dst_ip","dst_port","infection","family","tag","http_url","http_host","http_agent"
+"2026-10-20 03:15:00","tcp","198.18.10.21","51234","64500","ZZ","","192.0.2.99","80","vo1d","vo1d","vo1d","/gate.php","c2.vo1d-emu.example","Dalvik/2.1.0"
+"2026-10-20 04:20:00","tcp","198.18.10.22","40122","64500","ZZ","","192.0.2.99","80","badbox","badbox","badbox","/api/ping","ping.badbox.example","okhttp/4.9"
+"2026-10-20 05:00:00","tcp","198.18.10.21","51300","64500","ZZ","","192.0.2.99","80","vo1d","vo1d","vo1d","/gate.php","c2.vo1d-emu.example","Dalvik/2.1.0"
+"2026-10-20 05:10:00","tcp","198.18.10.23","51301","64500","ZZ","","192.0.2.99","80","badbox","badbox","badbox","/api/ping","ping.badbox.example","okhttp/4.9"
