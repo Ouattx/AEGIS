@@ -139,8 +139,20 @@ A distributed implementation maps shard `i` to a long-lived worker that owns `Li
 - Inputs are streamed (`aegis.ingest.parsers` yields record by record; `ingest_file` never loads
   a whole file), the coordinator buffers at most `batch_size` records, each worker holds one
   request (synchronous pipes), and `collect="count"` keeps no per-event output.
-- Window state per line is the dominant memory cost (measured in `eval/load/report`); it is owned
-  by `aegis.sentinel.features.WindowStore`, not by this package.
+- Window state per line is bounded streaming state owned by `aegis.sentinel.features.WindowStore`
+  (packed per-hop numpy records, tenant vocabularies shared by all lines, per-hop caps from
+  `StateLimits` beyond which a hop keeps a coordinated sample). A shard holds
+  `lines_on_shard x (measured bytes per line)` plus its own vocabularies; the measured per-line
+  figure and the hard per-line bound are in `eval/load/report`. Pass `window_limits=StateLimits(...)`
+  in `LineShardConfig` to change the caps; the IOC bundle given as `bundle` is always retained.
+- RESONANCE prep: each destination shard holds only its keys' rows (stage 2), so per-shard memory
+  is `events / n_shards` for the population statistics. Detection (stage 3) runs on one population;
+  its peak RAM grows linearly with the lines of that population (fit in the load report). The
+  bound for a large tenant is per sub-population: split it into independent sub-populations of at
+  most `N` lines (region, BNG, CGNAT pool) and run one detector per sub-population, sequentially or
+  in parallel; peak RAM is then that of one `N`-line run (measured for `N` = the largest run in the
+  load report) times the runs executing at once. `ResonanceStream(max_events=...)` additionally caps
+  one population's buffered events (thinning beyond the cap, which costs power).
 
 ## Coupling and tests
 

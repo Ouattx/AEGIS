@@ -26,18 +26,20 @@ the tenant-wide state global again, so the union of the shards' feature vectors 
 
 Shards never close windows on their own (their local watermark is disabled).
 
-Coupling note: :class:`ShardWindowStore` re-implements ``WindowStore._advance`` /
-``_emit`` around the injected context and therefore depends on the private layout of
-``aegis.sentinel.features``. ``tests/unit/test_scale_windows.py`` asserts equality with
-the reference implementation on lab corpora, so any drift fails CI loudly.
+Coupling note: :class:`ShardWindowStore` calls the reference store's private packing and
+emission steps (``_compact``, ``_views``, ``_close_window``) with an injected population
+context, so the feature code is shared, not copied. ``tests/unit/test_scale_lines.py``
+asserts equality with the reference implementation on lab corpora, so any drift fails CI.
 """
 from __future__ import annotations
 
 import math
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Iterable
+
+import numpy as np
 
 from aegis.contracts.models import FeatureVector, ObservationEvent
 from aegis.sentinel import features as _sf
@@ -176,7 +178,12 @@ class TenantClock:
 
 class ShardWindowStore(WindowStore):
     """A :class:`WindowStore` holding one line shard's entities; windows close only on
-    coordinator instruction, with the global tenant state and population context."""
+    coordinator instruction, with the global tenant state and population context.
+
+    It reuses the reference store's packing, emission and feature code unchanged; only the
+    population context (summed over shards by the coordinator) and the closing decision
+    come from outside.
+    """
 
     def __init__(self, window: WindowName = "24h", hop: timedelta | None = None, **kwargs: object):
         super().__init__(window, hop, **kwargs)  # type: ignore[arg-type]
@@ -210,28 +217,23 @@ class ShardWindowStore(WindowStore):
         t = self._tenants.get(tenant_id)
         if t is None:
             return set()
-        return {k for e in t.entities.values() for k in e.bins}
+        live_from = t.emitted_idx - self.n_bins + 1
+        return {k for k in t.bin_refs if k >= live_from}
 
     def local_contexts(self, tenant_id: str, end_indices: Iterable[int]) -> dict[int, WindowContext]:
         t = self._tenants.get(tenant_id)
         out: dict[int, WindowContext] = {}
+        if t is not None:
+            # pack pending events (dropping nothing) so every window sees all of its hops
+            for ent in t.entities.values():
+                self._compact(t, ent, -(1 << 62))
         for end_idx in end_indices:
             ctx = WindowContext()
             if t is not None:
-                lo = end_idx - self.n_bins
-                for ent in t.entities.values():
-                    dst: set[str] = set()
-                    qn: set[str] = set()
-                    found = False
-                    for k, b in ent.bins.items():
-                        if lo <= k < end_idx:
-                            found = True
-                            dst.update(k2 for k2, v in b.dst.items() if v)
-                            qn.update(k2 for k2, v in b.qnames.items() if v)
-                    if found:
-                        ctx.population += 1
-                        ctx.ip_prev.update(dst)
-                        ctx.q_prev.update(qn)
+                for w in self._views(t, end_idx):
+                    ctx.population += 1
+                    ctx.ip_prev.update(str(t.ips.items[i]) for i in w.dst_u.tolist())
+                    ctx.q_prev.update(str(t.names.items[i]) for i in w.q_u.tolist())
             out[end_idx] = ctx
         return out
 
@@ -241,67 +243,25 @@ class ShardWindowStore(WindowStore):
         t = self._tenants[plan.tenant_id]
         out: list[FeatureVector] = []
         for end_idx in plan.end_indices:
-            boundary = datetime.fromtimestamp(end_idx * self.hop_s, tz=timezone.utc)
-            for key in [k for k, cs in self._contacts.items()
-                        if k[0] == plan.tenant_id and cs.window_end < boundary]:
-                del self._contacts[key]
-            out.extend(self._emit_global(plan.tenant_id, t, end_idx, contexts[end_idx]))
-            lo = end_idx - self.n_bins + 1
-            for eid in list(t.entities):
-                ent = t.entities[eid]
-                for k in [k for k in ent.bins if k < lo]:
-                    del ent.bins[k]
-                if not ent.bins:
-                    del t.entities[eid]
+            out.extend(self._close_window(plan.tenant_id, t, end_idx, _global_context(t, contexts[end_idx])))
+            t.emitted_idx = end_idx
         t.next_boundary_idx = plan.next_boundary_idx
         if plan.emitted_idx != -2:
             t.emitted_idx = plan.emitted_idx
         return out
 
-    def _emit_global(self, tenant_id: str, t: "_sf._Tenant", end_idx: int,
-                     ctx: WindowContext) -> list[FeatureVector]:
-        lo = end_idx - self.n_bins
-        aggs: list[_sf._Agg] = []
-        for eid, ent in t.entities.items():
-            bins = sorted((k, b) for k, b in ent.bins.items() if lo <= k < end_idx)
-            if bins:
-                aggs.append(_sf._Agg(eid, ent.device_class, bins))
-        if not aggs:
-            return []
-        window_end_ts = end_idx * self.hop_s
-        window_start_ts = window_end_ts - self.window_s
-        coverage_start = max(window_start_ts, t.first_ts)
-        coverage_s = max(float(self.hop_s) / 60.0, window_end_ts - coverage_start)
-        first_bin = max(lo, int(t.first_ts // self.hop_s))
-        population = ctx.population
-        ip_prev, q_prev = ctx.ip_prev, ctx.q_prev
-        rare_cut = max(2, math.ceil(0.02 * population))
-        prevalence_ok = population >= self.min_population
-        window_end = datetime.fromtimestamp(window_end_ts, tz=timezone.utc)
-        window_start = datetime.fromtimestamp(window_start_ts, tz=timezone.utc)
-        out = []
-        for a in aggs:
-            values = self._features(a, t, coverage_s, first_bin, end_idx, ip_prev, q_prev, population,
-                                    rare_cut, prevalence_ok)
-            cs = self._contact_summary(tenant_id, a, window_start, window_end)
-            self._contacts[(tenant_id, a.entity)] = cs
-            if self.ioc_bundle is not None:
-                values["ioc_contacts"] = float(self.ioc_bundle.count_contacts(cs, window_end))
-            ids: list[str] = []
-            n_events = 0
-            for _, b in a.bins:
-                n_events += b.n_flows + b.n_dns
-                if self.max_ids is None or len(ids) < self.max_ids:
-                    ids.extend(b.event_ids)
-            if self.max_ids is not None:
-                ids = ids[: self.max_ids]
-            out.append(FeatureVector(
-                tenant_id=tenant_id, entity_pseudonym=a.entity, device_class=a.device_class or "unknown",
-                window=self.window, window_end=window_end, values=values,
-                missing={k: v is None for k, v in values.items()}, event_count=n_events,
-                source_event_ids=ids))
-        self.stats.windows_emitted += len(out)
-        return out
+
+def _global_context(t: "_sf._Tenant", ctx: WindowContext) -> "_sf._Context":
+    """Prevalence lookups over this shard's vocabulary ids, answered by the merged global counts."""
+    ips, names = t.ips.items, t.names.items
+
+    def ip(ids: np.ndarray) -> np.ndarray:
+        return np.asarray([ctx.ip_prev.get(str(ips[i]), 0) for i in ids.tolist()], dtype=np.int64)
+
+    def q(ids: np.ndarray) -> np.ndarray:
+        return np.asarray([ctx.q_prev.get(str(names[i]), 0) for i in ids.tolist()], dtype=np.int64)
+
+    return _sf._Context(ctx.population, ip, q)
 
 
 __all__ = ["ClosePlan", "EventDescriptor", "ShardWindowStore", "TenantClock", "TenantGlobal", "WindowContext",

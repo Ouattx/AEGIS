@@ -56,6 +56,7 @@ from aegis.scale.windows import (
     WindowContext,
     plan_close,
 )
+from aegis.sentinel.features import DEFAULT_MAX_SOURCE_EVENT_IDS, StateLimits
 
 log = logging.getLogger(__name__)
 
@@ -152,11 +153,12 @@ class LineShardConfig:
     allowed_lateness_s: float = 120.0
     max_future_skew_s: float = 600.0
     min_population: int = 20
-    max_source_event_ids: int | None = 10_000
+    max_source_event_ids: int | None = DEFAULT_MAX_SOURCE_EVENT_IDS
     model: Any = None
     model_dir: str | None = None
     bundle: Any = None
     window_ioc_bundle: bool = False
+    window_limits: StateLimits | None = None
     sentinel_kwargs: dict[str, Any] = field(default_factory=dict)
     #: builds the shard's :class:`~aegis.provenance.evidence.EvidenceStore` (picklable for
     #: ProcessCluster, e.g. a top-level function opening the tenant database); ``None`` means
@@ -184,7 +186,8 @@ class LineShardConfig:
                     allowed_lateness=timedelta(seconds=self.allowed_lateness_s),
                     max_future_skew=timedelta(seconds=self.max_future_skew_s),
                     min_population=self.min_population, max_source_event_ids=self.max_source_event_ids,
-                    ioc_bundle=self.bundle if self.window_ioc_bundle else None)
+                    ioc_bundle=self.bundle if self.window_ioc_bundle else None, retain_bundle=self.bundle,
+                    limits=self.window_limits)
 
     def __call__(self, shard_id: int) -> "LineShard":
         return LineShard(shard_id, self)

@@ -134,7 +134,8 @@ class Sentinel:
         self.bundle = bundle
         self.evidence_store = evidence_store
         self.anomaly = anomaly if anomaly is not None else (model.anomaly if model is not None else None)
-        self.windows = window_store or WindowStore("24h")
+        # the bundle's destinations are never sampled away when a busy line exceeds its window state caps
+        self.windows = window_store or WindowStore("24h", retain_bundle=bundle)
         self.changepoints = changepoints or ChangePointMonitor()
         self.policy = policy
         self.tenant_id = tenant_id

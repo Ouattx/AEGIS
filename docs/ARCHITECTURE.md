@@ -53,7 +53,7 @@ without updating this file.
 - `topology.py`: sample hosting topology (shared CDN IPs with many legit co-tenants, dedicated C2 IPs)
 
 ## aegis.sentinel
-- `features.py`: `class WindowStore`: `update(event) -> list[FeatureVector]` (emits on window close), `flush(now) -> list[FeatureVector]`; features per spec §4 (flow count, bytes in/out, unique dst, dst entropy, interval quantiles, nxdomain rate, protocol mix, ioc contacts, burstiness, baseline deviation) + missingness flags
+- `features.py`: `class WindowStore`: `update(event) -> list[FeatureVector]` (emits on window close), `flush(now) -> list[FeatureVector]`; features per spec §4 (flow count, bytes in/out, unique dst, dst entropy, interval quantiles, nxdomain rate, protocol mix, ioc contacts, burstiness, baseline deviation) + missingness flags; bounded streaming state: per-hop packed numpy records + tenant-shared vocabularies, per-hop caps (`StateLimits`) beyond which a hop keeps a coordinated bottom-k sample (IOC-bundle and recurring destinations always kept), `contacts_for(fv)` built on demand, `state_bytes()` accounting
 - `rules.py`: `class IOCBundle` (signed, version, indicators with `first_seen/last_seen/expires_at/source_group`), `load_bundle(data, keyring) -> IOCBundle` (rejects bad signature), `ioc_match(fv, events, bundle, now) -> list[Evidence]` (stale/expired indicators ignored)
 - `model.py`: `train(features: list[FeatureVector], labels, seed) -> TrainedModel` (LightGBM + isotonic calibration, time-forward split, group isolation), `TrainedModel.predict(fv) -> (score, calibration_id)`, `.save(dir)`, `load(dir)`, model card JSON
 - `anomaly.py`: robust per-device-class anomaly (IsolationForest / robust z) and CUSUM change-point
