@@ -1,0 +1,1398 @@
+{
+ "algorithm": {
+  "name": "lightgbm",
+  "params": {
+   "bagging_fraction": 0.8,
+   "bagging_freq": 1,
+   "deterministic": true,
+   "feature_fraction": 0.7,
+   "force_row_wise": true,
+   "lambda_l2": 5.0,
+   "learning_rate": 0.03,
+   "max_bin": 255,
+   "min_data_in_leaf": 50,
+   "num_leaves": 15,
+   "num_threads": 1,
+   "objective": "binary",
+   "verbose": -1
+  },
+  "rounds": 300
+ },
+ "calibration": {
+  "calibration_id": "iso-321a3a1fd7d7a27a",
+  "fit_on": "out-of-fold predictions, group k-fold within the training split",
+  "folds": 5,
+  "method": "isotonic",
+  "points": 32
+ },
+ "created_at": "2026-10-25T09:15:40.930731+00:00",
+ "data": {
+  "corpora": [
+   {
+    "days": 3,
+    "devices": 200,
+    "events": 354726,
+    "hard_negative_devices": 12,
+    "malicious_devices": 16,
+    "seed": 101,
+    "windows": 14102
+   },
+   {
+    "days": 3,
+    "devices": 120,
+    "events": 234008,
+    "hard_negative_devices": 7,
+    "malicious_devices": 10,
+    "seed": 202,
+    "windows": 8495
+   },
+   {
+    "days": 3,
+    "devices": 260,
+    "events": 525260,
+    "hard_negative_devices": 16,
+    "malicious_devices": 21,
+    "seed": 303,
+    "windows": 18305
+   },
+   {
+    "days": 3,
+    "devices": 90,
+    "events": 183817,
+    "hard_negative_devices": 6,
+    "malicious_devices": 7,
+    "seed": 404,
+    "windows": 6363
+   },
+   {
+    "days": 3,
+    "devices": 200,
+    "events": 406082,
+    "hard_negative_devices": 12,
+    "malicious_devices": 16,
+    "seed": 505,
+    "windows": 14095
+   },
+   {
+    "days": 3,
+    "devices": 120,
+    "events": 257162,
+    "hard_negative_devices": 7,
+    "malicious_devices": 10,
+    "seed": 606,
+    "windows": 8467
+   },
+   {
+    "days": 3,
+    "devices": 260,
+    "events": 530751,
+    "hard_negative_devices": 16,
+    "malicious_devices": 21,
+    "seed": 808,
+    "windows": 18348
+   },
+   {
+    "days": 3,
+    "devices": 90,
+    "events": 188974,
+    "hard_negative_devices": 6,
+    "malicious_devices": 7,
+    "seed": 909,
+    "windows": 6341
+   }
+  ],
+  "hop": "1h",
+  "label_rule": "infected >= 1h inside the window; straddling excluded",
+  "malicious_fraction": 0.08,
+  "seeds": [
+   101,
+   202,
+   303,
+   404,
+   505,
+   606,
+   808,
+   909
+  ],
+  "source": "aegis.lab synthetic corpus",
+  "train_negative_windows": 37304,
+  "train_positive_groups": 31,
+  "train_positive_windows": 1370,
+  "window": "24h",
+  "windows_labeled": 94430,
+  "windows_total": 94516
+ },
+ "evaluated_at": "2026-10-25T09:16:37.619777+00:00",
+ "features": {
+  "excluded": {
+   "device_class": "never a model input: compromise is not inferred from device class",
+   "ioc_contacts": "threat-feed knowledge enters through the signed rules path only (no feed contamination)"
+  },
+  "inputs": [
+   "coverage_h",
+   "flow_rate_h",
+   "dns_rate_h",
+   "bytes_out_rate_log",
+   "bytes_in_rate_log",
+   "out_ratio",
+   "unique_dst_ip",
+   "unique_dst_port",
+   "dst_entropy",
+   "max_dst_share",
+   "tcp_frac",
+   "udp_frac",
+   "small_flow_frac",
+   "zero_reply_frac",
+   "long_flow_frac",
+   "peak_out_pps_log",
+   "active_bin_frac",
+   "out_heavy_bin_frac",
+   "nxdomain_rate",
+   "nx_unique",
+   "nx_name_entropy",
+   "qname_unique",
+   "interval_p10_log",
+   "interval_p50_log",
+   "interval_p90_log",
+   "burstiness",
+   "beacon_robust_cv",
+   "beacon_period_log",
+   "beacon_events",
+   "beacon_bytes_log",
+   "beacon_duty",
+   "beacon_dst_prevalence",
+   "rare_dst_frac",
+   "rare_qname_frac",
+   "periodic_qnames",
+   "periodic_qname_prevalence",
+   "baseline_dev_flows",
+   "baseline_dev_bytes_out",
+   "recent_flows_log",
+   "recent_bytes_out_log",
+   "recent_unique_dst",
+   "missing__flow_rate_h",
+   "missing__dns_rate_h",
+   "missing__bytes_out_rate_log",
+   "missing__bytes_in_rate_log",
+   "missing__out_ratio",
+   "missing__unique_dst_ip",
+   "missing__unique_dst_port",
+   "missing__dst_entropy",
+   "missing__max_dst_share",
+   "missing__tcp_frac",
+   "missing__udp_frac",
+   "missing__small_flow_frac",
+   "missing__zero_reply_frac",
+   "missing__long_flow_frac",
+   "missing__peak_out_pps_log",
+   "missing__active_bin_frac",
+   "missing__out_heavy_bin_frac",
+   "missing__nxdomain_rate",
+   "missing__nx_unique",
+   "missing__nx_name_entropy",
+   "missing__qname_unique",
+   "missing__interval_p10_log",
+   "missing__interval_p50_log",
+   "missing__interval_p90_log",
+   "missing__burstiness",
+   "missing__beacon_robust_cv",
+   "missing__beacon_period_log",
+   "missing__beacon_events",
+   "missing__beacon_bytes_log",
+   "missing__beacon_duty",
+   "missing__beacon_dst_prevalence",
+   "missing__rare_dst_frac",
+   "missing__rare_qname_frac",
+   "missing__periodic_qnames",
+   "missing__periodic_qname_prevalence",
+   "missing__baseline_dev_flows",
+   "missing__baseline_dev_bytes_out",
+   "missing__recent_flows_log",
+   "missing__recent_bytes_out_log",
+   "missing__recent_unique_dst"
+  ],
+  "missingness_indicators": [
+   "flow_rate_h",
+   "dns_rate_h",
+   "bytes_out_rate_log",
+   "bytes_in_rate_log",
+   "out_ratio",
+   "unique_dst_ip",
+   "unique_dst_port",
+   "dst_entropy",
+   "max_dst_share",
+   "tcp_frac",
+   "udp_frac",
+   "small_flow_frac",
+   "zero_reply_frac",
+   "long_flow_frac",
+   "peak_out_pps_log",
+   "active_bin_frac",
+   "out_heavy_bin_frac",
+   "nxdomain_rate",
+   "nx_unique",
+   "nx_name_entropy",
+   "qname_unique",
+   "interval_p10_log",
+   "interval_p50_log",
+   "interval_p90_log",
+   "burstiness",
+   "beacon_robust_cv",
+   "beacon_period_log",
+   "beacon_events",
+   "beacon_bytes_log",
+   "beacon_duty",
+   "beacon_dst_prevalence",
+   "rare_dst_frac",
+   "rare_qname_frac",
+   "periodic_qnames",
+   "periodic_qname_prevalence",
+   "baseline_dev_flows",
+   "baseline_dev_bytes_out",
+   "recent_flows_log",
+   "recent_bytes_out_log",
+   "recent_unique_dst"
+  ],
+  "model_features": [
+   "coverage_h",
+   "flow_rate_h",
+   "dns_rate_h",
+   "bytes_out_rate_log",
+   "bytes_in_rate_log",
+   "out_ratio",
+   "unique_dst_ip",
+   "unique_dst_port",
+   "dst_entropy",
+   "max_dst_share",
+   "tcp_frac",
+   "udp_frac",
+   "small_flow_frac",
+   "zero_reply_frac",
+   "long_flow_frac",
+   "peak_out_pps_log",
+   "active_bin_frac",
+   "out_heavy_bin_frac",
+   "nxdomain_rate",
+   "nx_unique",
+   "nx_name_entropy",
+   "qname_unique",
+   "interval_p10_log",
+   "interval_p50_log",
+   "interval_p90_log",
+   "burstiness",
+   "beacon_robust_cv",
+   "beacon_period_log",
+   "beacon_events",
+   "beacon_bytes_log",
+   "beacon_duty",
+   "beacon_dst_prevalence",
+   "rare_dst_frac",
+   "rare_qname_frac",
+   "periodic_qnames",
+   "periodic_qname_prevalence",
+   "baseline_dev_flows",
+   "baseline_dev_bytes_out",
+   "recent_flows_log",
+   "recent_bytes_out_log",
+   "recent_unique_dst"
+  ],
+  "top_importance_gain": [
+   [
+    "rare_dst_frac",
+    53408.202341679484
+   ],
+   [
+    "periodic_qname_prevalence",
+    27977.464854272082
+   ],
+   [
+    "beacon_dst_prevalence",
+    18784.184192216024
+   ],
+   [
+    "recent_flows_log",
+    6971.585956543218
+   ],
+   [
+    "beacon_bytes_log",
+    5864.39698694367
+   ],
+   [
+    "zero_reply_frac",
+    5455.374654438347
+   ],
+   [
+    "rare_qname_frac",
+    4410.9875983297825
+   ],
+   [
+    "interval_p50_log",
+    4381.923865227029
+   ],
+   [
+    "interval_p90_log",
+    3940.0094539113343
+   ],
+   [
+    "recent_bytes_out_log",
+    3538.4790467033163
+   ],
+   [
+    "tcp_frac",
+    3165.1742870137095
+   ],
+   [
+    "nx_name_entropy",
+    2457.0953887812793
+   ],
+   [
+    "udp_frac",
+    2161.2703616172075
+   ],
+   [
+    "nxdomain_rate",
+    2077.120382692665
+   ],
+   [
+    "bytes_in_rate_log",
+    1962.4424293898046
+   ]
+  ]
+ },
+ "intended_use": "Shadow-mode detection of compromised household devices from flow/DNS metadata. Scores corroborate signed IOC rules and anomaly signals inside a pre-registered fusion policy; a model score alone never triggers enforcement.",
+ "limitations": [
+  "Trained on the AEGIS synthetic lab corpus unless stated otherwise in data.source; re-validate on operator shadow data before trusting operating points.",
+  "Label is device-window maliciousness; behavior type is assigned by deterministic rules.",
+  "Prevalence features need at least 20 active devices per tenant window (missing otherwise)."
+ ],
+ "metrics": {
+  "external_holdout_detector": {
+   "corpus": {
+    "days": 3,
+    "device_day_labels": {
+     "benign": 570,
+     "c2_beaconing": 7,
+     "ddos_bot": 9,
+     "dga_activity": 9,
+     "residential_proxy": 5
+    },
+    "device_days": 600,
+    "devices": 200,
+    "dns_events": 61101,
+    "events": 370762,
+    "flow_events": 309661,
+    "hard_negative_devices": 12,
+    "malicious_devices": 16,
+    "profiles": {
+     "android_tv_iptv": 44,
+     "console": 18,
+     "iot_camera": 14,
+     "iptv_busy_box": 12,
+     "laptop": 20,
+     "laptop_vpn": 14,
+     "phone": 44,
+     "smart_tv": 34
+    },
+    "seed": 7,
+    "start": "2026-10-01T00:00:00+00:00",
+    "tenant_id": "lab-eval"
+   },
+   "detected_by_label": {
+    "c2_beaconing": 4,
+    "ddos_bot": 4,
+    "dga_activity": 4,
+    "residential_proxy": 4
+   },
+   "detection_delay_hours_median": 1.0118640979166666,
+   "detector_version": "sentinel/1.0.0+sentinel-lgbm-b22cba443410719c+ioc:2026.09.30-lab.7+872cf5f4752e",
+   "device_days": 600,
+   "false_alerts_per_10k_device_days": 0.0,
+   "findings_by_verdict": {
+    "abstain": 8,
+    "malicious": 28,
+    "suspicious": 6
+   },
+   "findings_emitted": 42,
+   "fn": 0,
+   "fp": 0,
+   "hard_negative_devices": 12,
+   "hard_negative_devices_alerted": 0,
+   "malicious_by_label": {
+    "c2_beaconing": 4,
+    "ddos_bot": 4,
+    "dga_activity": 4,
+    "residential_proxy": 4
+   },
+   "malicious_devices": 16,
+   "malicious_devices_detected": 16,
+   "per_device_class": {
+    "android_tv": {
+     "device_days": 168,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "tn": 151,
+     "tp": 17
+    },
+    "camera": {
+     "device_days": 42,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "tn": 41,
+     "tp": 1
+    },
+    "console": {
+     "device_days": 54,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": null,
+     "recall": null,
+     "tn": 54,
+     "tp": 0
+    },
+    "laptop": {
+     "device_days": 102,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": null,
+     "recall": null,
+     "tn": 102,
+     "tp": 0
+    },
+    "phone": {
+     "device_days": 132,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": null,
+     "recall": null,
+     "tn": 132,
+     "tp": 0
+    },
+    "smart_tv": {
+     "device_days": 102,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "tn": 90,
+     "tp": 12
+    }
+   },
+   "per_label": {
+    "benign": {
+     "device_days": 570,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": null,
+     "recall": null,
+     "tn": 570,
+     "tp": 0
+    },
+    "c2_beaconing": {
+     "device_days": 7,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "tn": 0,
+     "tp": 7
+    },
+    "ddos_bot": {
+     "device_days": 9,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "tn": 0,
+     "tp": 9
+    },
+    "dga_activity": {
+     "device_days": 9,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "tn": 0,
+     "tp": 9
+    },
+    "residential_proxy": {
+     "device_days": 5,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "tn": 0,
+     "tp": 5
+    }
+   },
+   "positive_device_days": 30,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rules": {
+    "F0_insufficient_context": 1840,
+    "F10_benign": 11748,
+    "F11_uncertain": 2,
+    "F1_ioc_corroborated": 294,
+    "F2b_model_not_persistent": 7,
+    "F3_model_corroborated": 189,
+    "F4_model_only": 91
+   },
+   "tn": 570,
+   "tp": 30,
+   "verdicts": {
+    "abstain": 1849,
+    "benign": 11748,
+    "malicious": 475,
+    "suspicious": 99
+   },
+   "windows": 14171
+  },
+  "external_holdout_detector_no_iocs": {
+   "corpus": {
+    "days": 3,
+    "device_day_labels": {
+     "benign": 570,
+     "c2_beaconing": 7,
+     "ddos_bot": 9,
+     "dga_activity": 9,
+     "residential_proxy": 5
+    },
+    "device_days": 600,
+    "devices": 200,
+    "dns_events": 61101,
+    "events": 370762,
+    "flow_events": 309661,
+    "hard_negative_devices": 12,
+    "malicious_devices": 16,
+    "profiles": {
+     "android_tv_iptv": 44,
+     "console": 18,
+     "iot_camera": 14,
+     "iptv_busy_box": 12,
+     "laptop": 20,
+     "laptop_vpn": 14,
+     "phone": 44,
+     "smart_tv": 34
+    },
+    "seed": 7,
+    "start": "2026-10-01T00:00:00+00:00",
+    "tenant_id": "lab-eval"
+   },
+   "detected_by_label": {
+    "c2_beaconing": 4,
+    "ddos_bot": 4,
+    "dga_activity": 4,
+    "residential_proxy": 4
+   },
+   "detection_delay_hours_median": 1.5457377259722223,
+   "detector_version": "sentinel/1.0.0+sentinel-lgbm-b22cba443410719c+ioc:nobundle+872cf5f4752e",
+   "device_days": 600,
+   "false_alerts_per_10k_device_days": 0.0,
+   "findings_by_verdict": {
+    "abstain": 17,
+    "malicious": 28,
+    "suspicious": 9
+   },
+   "findings_emitted": 54,
+   "fn": 0,
+   "fp": 0,
+   "hard_negative_devices": 12,
+   "hard_negative_devices_alerted": 0,
+   "malicious_by_label": {
+    "c2_beaconing": 4,
+    "ddos_bot": 4,
+    "dga_activity": 4,
+    "residential_proxy": 4
+   },
+   "malicious_devices": 16,
+   "malicious_devices_detected": 16,
+   "per_device_class": {
+    "android_tv": {
+     "device_days": 168,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "tn": 151,
+     "tp": 17
+    },
+    "camera": {
+     "device_days": 42,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "tn": 41,
+     "tp": 1
+    },
+    "console": {
+     "device_days": 54,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": null,
+     "recall": null,
+     "tn": 54,
+     "tp": 0
+    },
+    "laptop": {
+     "device_days": 102,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": null,
+     "recall": null,
+     "tn": 102,
+     "tp": 0
+    },
+    "phone": {
+     "device_days": 132,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": null,
+     "recall": null,
+     "tn": 132,
+     "tp": 0
+    },
+    "smart_tv": {
+     "device_days": 102,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "tn": 90,
+     "tp": 12
+    }
+   },
+   "per_label": {
+    "benign": {
+     "device_days": 570,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": null,
+     "recall": null,
+     "tn": 570,
+     "tp": 0
+    },
+    "c2_beaconing": {
+     "device_days": 7,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "tn": 0,
+     "tp": 7
+    },
+    "ddos_bot": {
+     "device_days": 9,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "tn": 0,
+     "tp": 9
+    },
+    "dga_activity": {
+     "device_days": 9,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "tn": 0,
+     "tp": 9
+    },
+    "residential_proxy": {
+     "device_days": 5,
+     "false_alerts_per_10k_device_days": 0.0,
+     "fn": 0,
+     "fp": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "tn": 0,
+     "tp": 5
+    }
+   },
+   "positive_device_days": 30,
+   "precision": 1.0,
+   "recall": 1.0,
+   "rules": {
+    "F0_insufficient_context": 1840,
+    "F10_benign": 11749,
+    "F11_uncertain": 4,
+    "F2b_model_not_persistent": 17,
+    "F3_model_corroborated": 451,
+    "F4_model_only": 110
+   },
+   "tn": 570,
+   "tp": 30,
+   "verdicts": {
+    "abstain": 1861,
+    "benign": 11749,
+    "malicious": 451,
+    "suspicious": 110
+   },
+   "windows": 14171
+  },
+  "external_holdout_note": "full Sentinel (rules + model + anomaly + change-point + fusion) on an unseen corpus (seed 7: unseen devices, topology and campaigns), device-day level",
+  "test": {
+   "base_rate_device_days": 0.08230958230958231,
+   "base_rate_windows": 0.08172261783655477,
+   "bootstrap_ci95": {
+    "device_day_pr_auc": [
+     0.9956486900780379,
+     1.0
+    ],
+    "false_alerts_per_10k@0.50": [
+     0.0,
+     36.85503685503686
+    ],
+    "false_alerts_per_10k@0.60": [
+     0.0,
+     0.0
+    ],
+    "false_alerts_per_10k@0.90": [
+     0.0,
+     0.0
+    ],
+    "precision@0.50": [
+     0.95159307244844,
+     1.0
+    ],
+    "precision@0.60": [
+     1.0,
+     1.0
+    ],
+    "precision@0.90": [
+     1.0,
+     1.0
+    ],
+    "recall@0.50": [
+     0.954527972027972,
+     1.0
+    ],
+    "recall@0.60": [
+     0.954527972027972,
+     1.0
+    ],
+    "recall@0.90": [
+     0.954527972027972,
+     1.0
+    ]
+   },
+   "brier": 0.0009182809127191571,
+   "device_day_pr_auc": 0.998773257002658,
+   "device_days": 814,
+   "ece": 0.001301273780630819,
+   "operating_points": {
+    "0.50": {
+     "device_day": {
+      "fn": 1,
+      "fp": 1,
+      "precision": 0.9850746268656716,
+      "recall": 0.9850746268656716,
+      "tn": 746,
+      "tp": 66
+     },
+     "false_alerts_per_10k_device_days": 12.285012285012286,
+     "per_device_class": {
+      "android_tv": {
+       "device_days": 234,
+       "false_alerts_per_10k_device_days": 42.73504273504273,
+       "fn": 1,
+       "fp": 1,
+       "positive_device_days": 33,
+       "precision": 0.9696969696969697,
+       "recall": 0.9696969696969697,
+       "tn": 200,
+       "tp": 32
+      },
+      "camera": {
+       "device_days": 60,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 60,
+       "tp": 0
+      },
+      "console": {
+       "device_days": 72,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 72,
+       "tp": 0
+      },
+      "laptop": {
+       "device_days": 134,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 134,
+       "tp": 0
+      },
+      "phone": {
+       "device_days": 184,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 184,
+       "tp": 0
+      },
+      "smart_tv": {
+       "device_days": 130,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 34,
+       "precision": 1.0,
+       "recall": 1.0,
+       "tn": 96,
+       "tp": 34
+      }
+     },
+     "window": {
+      "fn": 14,
+      "fp": 2,
+      "precision": 0.9978991596638656,
+      "recall": 0.9854771784232366,
+      "tn": 10830,
+      "tp": 950
+     }
+    },
+    "0.60": {
+     "device_day": {
+      "fn": 1,
+      "fp": 0,
+      "precision": 1.0,
+      "recall": 0.9850746268656716,
+      "tn": 747,
+      "tp": 66
+     },
+     "false_alerts_per_10k_device_days": 0.0,
+     "per_device_class": {
+      "android_tv": {
+       "device_days": 234,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 1,
+       "fp": 0,
+       "positive_device_days": 33,
+       "precision": 1.0,
+       "recall": 0.9696969696969697,
+       "tn": 201,
+       "tp": 32
+      },
+      "camera": {
+       "device_days": 60,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 60,
+       "tp": 0
+      },
+      "console": {
+       "device_days": 72,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 72,
+       "tp": 0
+      },
+      "laptop": {
+       "device_days": 134,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 134,
+       "tp": 0
+      },
+      "phone": {
+       "device_days": 184,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 184,
+       "tp": 0
+      },
+      "smart_tv": {
+       "device_days": 130,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 34,
+       "precision": 1.0,
+       "recall": 1.0,
+       "tn": 96,
+       "tp": 34
+      }
+     },
+     "window": {
+      "fn": 22,
+      "fp": 0,
+      "precision": 1.0,
+      "recall": 0.9771784232365145,
+      "tn": 10832,
+      "tp": 942
+     }
+    },
+    "0.90": {
+     "device_day": {
+      "fn": 1,
+      "fp": 0,
+      "precision": 1.0,
+      "recall": 0.9850746268656716,
+      "tn": 747,
+      "tp": 66
+     },
+     "false_alerts_per_10k_device_days": 0.0,
+     "per_device_class": {
+      "android_tv": {
+       "device_days": 234,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 1,
+       "fp": 0,
+       "positive_device_days": 33,
+       "precision": 1.0,
+       "recall": 0.9696969696969697,
+       "tn": 201,
+       "tp": 32
+      },
+      "camera": {
+       "device_days": 60,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 60,
+       "tp": 0
+      },
+      "console": {
+       "device_days": 72,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 72,
+       "tp": 0
+      },
+      "laptop": {
+       "device_days": 134,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 134,
+       "tp": 0
+      },
+      "phone": {
+       "device_days": 184,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 184,
+       "tp": 0
+      },
+      "smart_tv": {
+       "device_days": 130,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 34,
+       "precision": 1.0,
+       "recall": 1.0,
+       "tn": 96,
+       "tp": 34
+      }
+     },
+     "window": {
+      "fn": 22,
+      "fp": 0,
+      "precision": 1.0,
+      "recall": 0.9771784232365145,
+      "tn": 10832,
+      "tp": 942
+     }
+    }
+   },
+   "positive_device_days": 67,
+   "positive_windows": 964,
+   "pr_auc": 0.9998100137253638,
+   "roc_auc": 0.999985970185159,
+   "windows": 11796
+  },
+  "train_out_of_fold": {
+   "base_rate_device_days": 0.04394426580921758,
+   "base_rate_windows": 0.03542431607798521,
+   "brier": 0.0009166181817029697,
+   "device_day_pr_auc": 0.9886791010218022,
+   "device_days": 1866,
+   "ece": 1.0334599184595758e-19,
+   "operating_points": {
+    "0.50": {
+     "device_day": {
+      "fn": 1,
+      "fp": 10,
+      "precision": 0.8901098901098901,
+      "recall": 0.9878048780487805,
+      "tn": 1774,
+      "tp": 81
+     },
+     "false_alerts_per_10k_device_days": 53.59056806002144,
+     "per_device_class": {
+      "android_tv": {
+       "device_days": 518,
+       "false_alerts_per_10k_device_days": 115.83011583011583,
+       "fn": 1,
+       "fp": 6,
+       "positive_device_days": 38,
+       "precision": 0.8604651162790697,
+       "recall": 0.9736842105263158,
+       "tn": 474,
+       "tp": 37
+      },
+      "camera": {
+       "device_days": 124,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 2,
+       "precision": 1.0,
+       "recall": 1.0,
+       "tn": 122,
+       "tp": 2
+      },
+      "console": {
+       "device_days": 172,
+       "false_alerts_per_10k_device_days": 58.13953488372093,
+       "fn": 0,
+       "fp": 1,
+       "positive_device_days": 0,
+       "precision": 0.0,
+       "recall": null,
+       "tn": 171,
+       "tp": 0
+      },
+      "laptop": {
+       "device_days": 322,
+       "false_alerts_per_10k_device_days": 62.11180124223603,
+       "fn": 0,
+       "fp": 2,
+       "positive_device_days": 0,
+       "precision": 0.0,
+       "recall": null,
+       "tn": 320,
+       "tp": 0
+      },
+      "phone": {
+       "device_days": 404,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 404,
+       "tp": 0
+      },
+      "smart_tv": {
+       "device_days": 326,
+       "false_alerts_per_10k_device_days": 30.67484662576687,
+       "fn": 0,
+       "fp": 1,
+       "positive_device_days": 42,
+       "precision": 0.9767441860465116,
+       "recall": 1.0,
+       "tn": 283,
+       "tp": 42
+      }
+     },
+     "window": {
+      "fn": 36,
+      "fp": 10,
+      "precision": 0.9925595238095238,
+      "recall": 0.9737226277372263,
+      "tn": 37294,
+      "tp": 1334
+     }
+    },
+    "0.60": {
+     "device_day": {
+      "fn": 2,
+      "fp": 1,
+      "precision": 0.9876543209876543,
+      "recall": 0.975609756097561,
+      "tn": 1783,
+      "tp": 80
+     },
+     "false_alerts_per_10k_device_days": 5.359056806002144,
+     "per_device_class": {
+      "android_tv": {
+       "device_days": 518,
+       "false_alerts_per_10k_device_days": 19.305019305019304,
+       "fn": 1,
+       "fp": 1,
+       "positive_device_days": 38,
+       "precision": 0.9736842105263158,
+       "recall": 0.9736842105263158,
+       "tn": 479,
+       "tp": 37
+      },
+      "camera": {
+       "device_days": 124,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 2,
+       "precision": 1.0,
+       "recall": 1.0,
+       "tn": 122,
+       "tp": 2
+      },
+      "console": {
+       "device_days": 172,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 172,
+       "tp": 0
+      },
+      "laptop": {
+       "device_days": 322,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 322,
+       "tp": 0
+      },
+      "phone": {
+       "device_days": 404,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 404,
+       "tp": 0
+      },
+      "smart_tv": {
+       "device_days": 326,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 1,
+       "fp": 0,
+       "positive_device_days": 42,
+       "precision": 1.0,
+       "recall": 0.9761904761904762,
+       "tn": 284,
+       "tp": 41
+      }
+     },
+     "window": {
+      "fn": 47,
+      "fp": 1,
+      "precision": 0.9992447129909365,
+      "recall": 0.9656934306569344,
+      "tn": 37303,
+      "tp": 1323
+     }
+    },
+    "0.90": {
+     "device_day": {
+      "fn": 2,
+      "fp": 1,
+      "precision": 0.9876543209876543,
+      "recall": 0.975609756097561,
+      "tn": 1783,
+      "tp": 80
+     },
+     "false_alerts_per_10k_device_days": 5.359056806002144,
+     "per_device_class": {
+      "android_tv": {
+       "device_days": 518,
+       "false_alerts_per_10k_device_days": 19.305019305019304,
+       "fn": 1,
+       "fp": 1,
+       "positive_device_days": 38,
+       "precision": 0.9736842105263158,
+       "recall": 0.9736842105263158,
+       "tn": 479,
+       "tp": 37
+      },
+      "camera": {
+       "device_days": 124,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 2,
+       "precision": 1.0,
+       "recall": 1.0,
+       "tn": 122,
+       "tp": 2
+      },
+      "console": {
+       "device_days": 172,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 172,
+       "tp": 0
+      },
+      "laptop": {
+       "device_days": 322,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 322,
+       "tp": 0
+      },
+      "phone": {
+       "device_days": 404,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 0,
+       "fp": 0,
+       "positive_device_days": 0,
+       "precision": null,
+       "recall": null,
+       "tn": 404,
+       "tp": 0
+      },
+      "smart_tv": {
+       "device_days": 326,
+       "false_alerts_per_10k_device_days": 0.0,
+       "fn": 1,
+       "fp": 0,
+       "positive_device_days": 42,
+       "precision": 1.0,
+       "recall": 0.9761904761904762,
+       "tn": 284,
+       "tp": 41
+      }
+     },
+     "window": {
+      "fn": 47,
+      "fp": 1,
+      "precision": 0.9992447129909365,
+      "recall": 0.9656934306569344,
+      "tn": 37303,
+      "tp": 1323
+     }
+    }
+   },
+   "positive_device_days": 82,
+   "positive_windows": 1370,
+   "pr_auc": 0.9947403044537698,
+   "roc_auc": 0.9996138747963076,
+   "windows": 38674
+  }
+ },
+ "model_id": "sentinel-lgbm-b22cba443410719c",
+ "schema": "aegis.model_card/1",
+ "score_reference": {
+  "edges": [
+   0.0,
+   0.05,
+   0.1,
+   0.2,
+   0.3,
+   0.5,
+   0.7,
+   0.9,
+   1.000000001
+  ],
+  "fractions": [
+   0.9614728241195636,
+   0.0019910017065728914,
+   0.0008532864456740963,
+   0.0,
+   0.0009308579407353777,
+   0.0005171433004085432,
+   0.0,
+   0.03423488648704556
+  ]
+ },
+ "split": {
+  "cutoff": "2026-10-02T20:00:00+00:00",
+  "group_key": "campaign",
+  "groups_total": 1279,
+  "method": "time_forward_group_isolated",
+  "positive_groups": 47,
+  "shared_entities": 0,
+  "shared_groups": 0,
+  "test_entities": 407,
+  "test_groups": 384,
+  "test_positive_windows": 964,
+  "test_windows": 11796,
+  "time_split_quantile": 0.6,
+  "train_entities": 933,
+  "train_positive_windows": 1370,
+  "train_windows": 38674
+ },
+ "task": "binary: malicious vs benign device-window (24h context)",
+ "version": "1.0.0-lab"
+}
