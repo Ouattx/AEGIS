@@ -158,6 +158,13 @@ sliding horizon and DNS answers for the join TTL only, and re-runs detection eve
 stable across windows: campaigns sharing any destination are one canonical campaign, so a
 rotating-domain cluster that grows is not re-announced.
 
+Memory of one detection run: per-period matrices (Z, R, the capped statistic G) are held only
+for informative (line, destination) series, those with at least one event pair in the
+difference window; the many one-off contacts of a day share one zero row. Peak RAM still grows
+linearly with the lines of the population tested together (measured in `eval/load/report`), so
+the per-run bound for a large tenant comes from testing independent sub-populations (region,
+BNG, CGNAT pool) separately, see `aegis/scale/INTEGRATION.md`.
+
 ## 4. What is guaranteed, and under which assumptions
 
 * **FDR ≤ q for *resonance*** under these assumptions:

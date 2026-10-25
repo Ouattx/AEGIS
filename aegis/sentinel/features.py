@@ -505,13 +505,16 @@ class _SlotSketch:
         self.heavy: dict[int, int] = {}                 # destination id -> exact flows (top talkers)
         self.ports: np.ndarray = np.zeros(0, dtype=np.int64)   # exact distinct ports (capped)
 
-    def add_flows(self, dst: np.ndarray, ports: np.ndarray) -> None:
-        """Exact top-destination counts and distinct ports of one run, before sampling."""
+    def add_flows(self, dst: np.ndarray, ports: np.ndarray, hashes: np.ndarray) -> None:
+        """Exact top-destination counts and distinct ports of one run, before sampling.
+
+        Ties resolve by key hash (not vocabulary id) so every shard keeps the same top talkers.
+        """
         u, c = np.unique(dst, return_counts=True)
         for i, n in zip(u.tolist(), c.tolist()):
             self.heavy[i] = self.heavy.get(i, 0) + n
         if len(self.heavy) > _HEAVY:
-            top = sorted(self.heavy.items(), key=lambda kv: (-kv[1], kv[0]))[:_HEAVY]
+            top = sorted(self.heavy.items(), key=lambda kv: (-kv[1], float(hashes[kv[0]])))[:_HEAVY]
             self.heavy = dict(top)
         p = np.union1d(self.ports, ports[ports >= 0])
         self.ports = p[:_PORTS_CAP]
@@ -571,9 +574,6 @@ class _Entity:
         self.seen_k = -(1 << 62)
         self.last_emit = -(1 << 62)                    # end index of the last emitted window
 
-    def has_bin(self, k: int) -> bool:
-        return k in self.hot or k in self.slots
-
     def live(self, lo: int) -> bool:
         return bool(self.hot) or (bool(self.slots) and self.slots[-1] >= lo)
 
@@ -632,11 +632,10 @@ class _View:
         self.dk = np.repeat(sl, np.diff(ent.do[i0:i1 + 1]))
         self.dt = self.dk * float(hop) + self.d["off"] / 1000.0
         self.a = ent.a[ent.ao[i0]:ent.ao[i1]]
-        sk = [ent.ovf[s] for s in self.slots if s in ent.ovf] if ent.ovf else []
         self.sketches: dict[int, _SlotSketch] = {s: ent.ovf[s] for s in self.slots if s in ent.ovf} \
             if ent.ovf else {}
-        self.tau_f = min((x.tau_f for x in sk), default=1.0)
-        self.tau_q = min((x.tau_q for x in sk), default=1.0)
+        self.tau_f = min((x.tau_f for x in self.sketches.values()), default=1.0)
+        self.tau_q = min((x.tau_q for x in self.sketches.values()), default=1.0)
         ch_dst = np.frombuffer(t.channels.dst, dtype=np.int64)
         ch_long = np.frombuffer(t.channels.long, dtype=np.int8)
         ch = self.f["ch"].astype(np.int64)
@@ -644,8 +643,8 @@ class _View:
         self.discrete = ch_long[ch] == 0
         self.qid = (self.d["q"] & Q_MASK).astype(np.int64)
         self.nx = (self.d["q"] & NX_BIT) != 0
-        self.dst_u = np.unique(self.dst)
-        self.q_u = np.unique(self.qid)
+        self.dst_u, self.dst_c = np.unique(self.dst, return_counts=True)
+        self.q_u, self.q_c = np.unique(self.qid, return_counts=True)
 
     @property
     def sampled(self) -> bool:
@@ -929,7 +928,7 @@ class WindowStore:
             for voc in (t.ips, t.names, t.channels):
                 keys += len(voc.index)
                 vocab += sys.getsizeof(voc.index) + sys.getsizeof(voc.items) + sys.getsizeof(voc.free)
-                vocab += sum(sys.getsizeof(k) for k in voc.index)
+                vocab += sum(sys.getsizeof(k) + sys.getsizeof(i) for k, i in voc.index.items())
                 vocab += sum(sys.getsizeof(a) for a in (voc.last, voc.hash, voc.pinned))
             vocab += sys.getsizeof(t.names.entropy) + sys.getsizeof(t.ips.entropy)
             vocab += sum(sys.getsizeof(a) for a in (t.channels.dst, t.channels.port, t.channels.long))
@@ -1007,7 +1006,7 @@ class WindowStore:
                     rch = run["ch"].astype(np.int64)
                     disc = ch_long[rch] == 0
                     sk.add_starts(s * float(self.hop_s) + run["off"][disc] / 1000.0)
-                    sk.add_flows(ch_dst[rch], ch_port[rch])
+                    sk.add_flows(ch_dst[rch], ch_port[rch], ip_hash)
                     if len(piece) > lim.flow_events_per_bin:
                         keep, tau = self._select(ent, s, ch_dst[piece["ch"].astype(np.int64)], piece["off"],
                                                  ip_hash, ip_pin, lim.flow_events_per_bin)
@@ -1257,7 +1256,11 @@ class WindowStore:
             raw = iter(ent.raw_ids.get(s, ())) if ent.raw_ids else iter(())
             for o in range(0, len(buf), 16):
                 b = bytes(buf[o:o + 16])
-                ids.append(next(raw) if b == _RAW_MARKER else str(uuid.UUID(bytes=b)))
+                if b == _RAW_MARKER:
+                    ids.append(next(raw))
+                else:
+                    h = b.hex()
+                    ids.append(f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}")
             if self.max_ids is not None and len(ids) >= self.max_ids:
                 break
         return ids if self.max_ids is None else ids[: self.max_ids]
@@ -1324,8 +1327,8 @@ class WindowStore:
                 v["recent_unique_dst"] = 0.0
             else:
                 sk = w.sketches.get(end_idx - 1)
-                v["recent_unique_dst"] = self._distinct(t, np.unique(w.dst[w.fk == end_idx - 1]),
-                                                        sk.tau_f if sk is not None else 1.0)
+                recent = w.dst_u if len(w.slots) == 1 else np.unique(w.dst[w.fk == end_idx - 1])
+                v["recent_unique_dst"] = self._distinct(t, recent, sk.tau_f if sk is not None else 1.0)
             series_f = [float(sc[by_idx[k], S_NF]) if k in by_idx else 0.0 for k in range(first_bin, end_idx)]
             if len(series_f) >= 7:
                 v["baseline_dev_flows"] = _robust_z(_log10p(series_f[-1]), [_log10p(x) for x in series_f[:-1]])
@@ -1346,7 +1349,7 @@ class WindowStore:
                     v["baseline_dev_bytes_out"] = _robust_z(_log10p(series_b[-1]),
                                                             [_log10p(x) for x in series_b[:-1]])
             ch_port = np.frombuffer(t.channels.port, dtype=np.int64)
-            ud, cd = np.unique(w.dst, return_counts=True)
+            ud, cd = w.dst_u, w.dst_c
             ports = np.unique(ch_port[w.f["ch"].astype(np.int64)])
             ports = ports[ports >= 0]
             if w.sketches:
@@ -1432,7 +1435,7 @@ class WindowStore:
 
     def _periodic_names(self, w: _View, covered_bins: int) -> list[int]:
         """Names whose lookups recur on a regular schedule (resolver-cache driven check-ins)."""
-        if len(w.qid) < MIN_CHANNEL_EVENTS:
+        if not len(w.q_c) or int(w.q_c.max()) < MIN_CHANNEL_EVENTS:
             return []
         o = np.lexsort((w.dt, w.qid))
         qid, ts, ks = w.qid[o], w.dt[o], w.dk[o]
@@ -1468,7 +1471,7 @@ class WindowStore:
                 mu = float(gaps.mean())
                 sd = float(gaps.std())
                 v["burstiness"] = (sd - mu) / (sd + mu) if sd + mu > 0 else 0.0
-        if not disc.any():
+        if int(np.count_nonzero(disc)) < MIN_CHANNEL_EVENTS:
             return
         ch = w.f["ch"].astype(np.int64)[disc]
         ts = w.ft[disc]
@@ -1585,8 +1588,10 @@ def _group(rows: array, width: int) -> dict[int, np.ndarray]:
     """Pending records ``(hop, ...)`` grouped by hop as float64 matrices (arrival order kept)."""
     if not rows:
         return {}
-    m = np.array(rows, dtype=np.float64).reshape(-1, width)
+    m = np.frombuffer(rows, dtype=np.float64).reshape(-1, width)
     k = m[:, 0].astype(np.int64)
+    if k[0] == k[-1] and (k == k[0]).all():
+        return {int(k[0]): m}                     # the common case: one hop pending
     o = np.argsort(k, kind="stable")
     m, k = m[o], k[o]
     cut = np.flatnonzero(np.diff(k)) + 1

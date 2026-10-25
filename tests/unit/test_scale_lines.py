@@ -244,6 +244,46 @@ def test_out_of_order_stream_with_drops_and_gaps_is_identical():
     assert sorted(map(_fkey, fvs)) == sorted(map(_fkey, res.features))
 
 
+def test_sampled_hops_are_identical_across_shards():
+    """Busy lines over tiny state caps: the coordinated samples, estimates and prevalence match exactly."""
+    from aegis.sentinel import StateLimits
+    now = datetime(2026, 10, 2, tzinfo=timezone.utc)
+    src = SourceConfig(tenant_id="t1", source_id="nf", source_kind=SourceKind.NETFLOW,
+                       vantage=Vantage.SUBSCRIBER_LINE, collection_authorization_id="auth-1")
+    rnd = random.Random(9)
+    base = datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp()
+    rows = []
+    for k in range(6000):
+        t = base + k * 1.7
+        dev = f"02:00:00:00:{rnd.randrange(25):02x}:01"
+        ts = datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        rows.append(f"{ts},{dev},phone,10.0.0.9,5000,198.18.{rnd.randrange(8)}.{rnd.randrange(200)},"
+                    f"{rnd.choice([443, 80, 8443])},6,3,900,2,400,{rnd.choice([30, 2000, 60000])}")
+    payloads = [_flow_csv(rows[i:i + 900]) for i in range(0, len(rows), 900)]
+    key = b"k" * 32
+    limits = StateLimits(flow_events_per_bin=16, dns_events_per_bin=16, answers_per_bin=16)
+    store = WindowStore("24h", min_population=3, limits=limits)
+    fvs = []
+    bus = CollectingBus()
+    bus.subscribe("observations", lambda ev: fvs.extend(store.update(ev)))
+    pipe = IngestPipeline(bus, Validator(clock=FixedClock(now)), {"nf": src}, pseudonymizers={"t1": Pseudonymizer(key)},
+                          clock=FixedClock(now))
+    for p in payloads:
+        pipe.ingest_text(p, "nf")
+    fvs.extend(store.flush(now))
+    assert store.stats.sampled_bins > 10
+    cfg = LineShardConfig(sources={"nf": src}, tenant_keys={"t1": key}, mode="features", clock=FixedClock(now),
+                          min_population=3, window_limits=limits)
+    with InlineCluster(cfg, 3) as cl:
+        sp = ShardedLinePipeline(cl, cfg, batch_size=500)
+        for p in payloads:
+            sp.ingest_text(p, "nf")
+        sp.flush(now)
+        res = sp.finish()
+    assert res.window_stats == vars(store.stats)
+    assert sorted(map(_fkey, fvs)) == sorted(map(_fkey, res.features))
+
+
 def test_plan_close_mirrors_window_loop():
     # no data: jump to the watermark
     p = plan_close(set(), 10, 3600 * 15 + 5, 3600, 24, "t")
