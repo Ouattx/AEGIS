@@ -21,7 +21,9 @@ ENTITY = "p_" + "a" * 32
 
 def make_settings(tmp: Path, **kw: Any) -> Settings:
     base: dict[str, Any] = dict(auth_mode="dev", data_dir=tmp, dev_jwt_secret="s" * 48, log_format="text",
-                                sweep_interval_s=0, llm_enabled=False)
+                                sweep_interval_s=0, llm_enabled=False,
+                                # hermetic: a locally built web/dist must not change API test outcomes
+                                web_dist=tmp / "no-console")
     base.update(kw)
     return Settings(**base)
 
