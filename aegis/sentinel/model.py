@@ -14,7 +14,10 @@ Training protocol (:func:`train`):
    fit on them and the final booster is refit on the whole training set.
 4. **Model card.** Precision, recall, PR-AUC, ROC-AUC, expected calibration error,
    Brier score, false alerts per 10k device-days, per-device-class breakdowns and
-   cluster-bootstrap confidence intervals, all on the held-out test split.
+   cluster-bootstrap confidence intervals, all on the held-out test split. The card
+   also records ``data.validated_min_population``: the smallest tenant population
+   (active devices in one tenant window) in the training data. The fusion policy
+   abstains from model-only verdicts below it.
 
 Feature policy: ``ioc_contacts`` is excluded (indicator knowledge enters through
 the signed rules path only; training on it would leak threat-feed copies into the
@@ -430,6 +433,22 @@ class TrainedModel:
     def version(self) -> str:
         return str(self.card.get("version", self.model_id))
 
+    @property
+    def validated_min_population(self) -> int | None:
+        """Smallest tenant population (active devices per window) the model was validated on.
+
+        Read from ``data.validated_min_population``. Cards that predate that field fall back
+        to the smallest training corpus (``data.corpora[].devices``), an upper bound (warm-up
+        windows of a corpus have fewer active devices), so the guard errs strict. None when
+        the card records neither.
+        """
+        data = self.card.get("data") or {}
+        explicit = data.get("validated_min_population")
+        if explicit is not None:
+            return int(explicit)
+        sizes = [int(c["devices"]) for c in data.get("corpora") or [] if c.get("devices") is not None]
+        return min(sizes) if sizes else None
+
     def raw_scores(self, fvs: Sequence[FeatureVector]) -> np.ndarray:
         if not fvs:
             return np.empty(0)
@@ -566,6 +585,18 @@ def load_default(**kwargs: Any) -> TrainedModel:
 
 # ---------------------------------------------------------------------------- training
 
+def min_window_population(fvs: Sequence[FeatureVector]) -> int | None:
+    """Smallest number of active devices in one tenant window (the population-relative
+    features of every training window were computed over at least this many devices).
+
+    ``fvs`` must come from one corpus: windows are grouped by (tenant, window end).
+    """
+    counts: dict[tuple[str, datetime], int] = defaultdict(int)
+    for fv in fvs:
+        counts[(fv.tenant_id, fv.window_end)] += 1
+    return min(counts.values()) if counts else None
+
+
 def _fit_booster(X: np.ndarray, y: np.ndarray, params: dict[str, Any], rounds: int, seed: int) -> Any:
     import lightgbm as lgb
     p = dict(params)
@@ -628,6 +659,11 @@ def train(features: Sequence[FeatureVector], labels: Labels, seed: int = 7, *,
     edges = [0.0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0 + 1e-9]
     counts, _ = np.histogram(oof_p, bins=np.asarray(edges))
     model = TrainedModel(booster=booster, calibrator=calibrator, card={}, anomaly=anomaly)
+    corpora = list((dataset_info or {}).get("corpora") or [])
+    if corpora and all(c.get("min_window_population") is not None for c in corpora):
+        validated_population = min(int(c["min_window_population"]) for c in corpora)
+    else:
+        validated_population = min_window_population(feats)
 
     test_fvs = [feats[i] for i in test_idx]
     y_te = [int(y_all[i]) for i in test_idx]  # type: ignore[arg-type]
@@ -654,7 +690,7 @@ def train(features: Sequence[FeatureVector], labels: Labels, seed: int = 7, *,
         "data": {**dict(dataset_info or {}), "windows_total": len(feats),
                  "windows_labeled": sum(1 for v in y_all if v is not None),
                  "train_positive_windows": n_pos, "train_negative_windows": n_neg,
-                 "train_positive_groups": pos_groups},
+                 "train_positive_groups": pos_groups, "validated_min_population": validated_population},
         "split": split_desc,
         "metrics": {"test": test_metrics,
                     "train_out_of_fold": compute_metrics(oof_fvs, [int(v) for v in y_tr[ok]], oof_p,
@@ -668,6 +704,8 @@ def train(features: Sequence[FeatureVector], labels: Labels, seed: int = 7, *,
             "re-validate on operator shadow data before trusting operating points.",
             "Label is device-window maliciousness; behavior type is assigned by deterministic rules.",
             "Prevalence features need at least 20 active devices per tenant window (missing otherwise).",
+            f"Validated for tenant windows of at least {validated_population} active devices; the fusion "
+            "policy abstains from model-only verdicts on smaller populations.",
         ],
     }
     return model
@@ -677,5 +715,5 @@ __all__ = [
     "DEFAULT_PARAMS", "EXCLUDED_FEATURES", "INPUT_NAMES", "MISSING_FLAGS", "MODEL_FEATURES", "MODEL_FORMAT",
     "InsufficientTrainingData", "IsotonicCalibrator", "ModelIntegrityError", "SplitConfig", "TrainedModel",
     "compute_metrics", "default_model_dir", "device_day", "expected_calibration_error", "load", "load_default",
-    "resolve_labels", "split_indices", "train", "vectorize", "vectorize_many",
+    "min_window_population", "resolve_labels", "split_indices", "train", "vectorize", "vectorize_many",
 ]

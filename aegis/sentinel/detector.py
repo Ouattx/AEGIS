@@ -9,8 +9,15 @@ Per event::
         ml      = calibrated_model.predict(window)                          (B)
         anomaly = per-device-class robust anomaly(window)                   (C)
         change  = CUSUM change points of the entity                         (D)
-        result  = fusion_policy(rules, ml, anomaly, change, window)         (ABSTAIN when context is short)
+        result  = fusion_policy(rules, ml, anomaly, change, window,
+                                population=active devices of the tenant in that window)
+                                                                    (ABSTAIN when context is short)
         emit a Finding for MALICIOUS / SUSPICIOUS (and signal-bearing ABSTAIN)
+
+The fusion policy's population guard (``min_model_population``) is taken from the
+model card's validated minimum unless the given policy sets it, so it is part of the
+policy hash recorded on every finding. A model whose card does not say which
+populations it was validated on gets no model-only verdicts at all (fail closed).
 
 Findings cite evidence ids (observation summary, indicator matches, model score with
 feature attributions, anomaly, change points) and contradicting feeds as
@@ -30,7 +37,7 @@ Nothing here imports or calls an LLM.
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Iterable, Sequence
 
@@ -59,6 +66,8 @@ from aegis.sentinel.model import TrainedModel
 from aegis.sentinel.rules import IOCBundle, ioc_match
 
 SENTINEL_VERSION = "1.0.0"
+#: population guard for a model whose card does not record its validated population
+POPULATION_NOT_VALIDATED = 2**31 - 1
 TELEMETRY_GROUP = "operator-telemetry"
 _RANK = {Verdict.ABSTAIN: 0, Verdict.SUSPICIOUS: 1, Verdict.MALICIOUS: 2}
 _SUMMARY_FEATURES = ("flow_rate_h", "dns_rate_h", "unique_dst_ip", "dst_entropy", "nxdomain_rate", "nx_unique",
@@ -136,7 +145,8 @@ class Sentinel:
         self.anomaly = anomaly if anomaly is not None else (model.anomaly if model is not None else None)
         self.windows = window_store or WindowStore("24h")
         self.changepoints = changepoints or ChangePointMonitor()
-        self.policy = policy
+        self._configured_policy = policy
+        self.policy = self._resolve_policy(policy, model)
         self.tenant_id = tenant_id
         self.authorized = frozenset(authorized_collections) if authorized_collections is not None else None
         self.finding_ttl = finding_ttl
@@ -151,6 +161,21 @@ class Sentinel:
         self._last_prune: datetime | None = None
         self._closing_ingested_at: datetime | None = None
         self.state_ttl = max(timedelta(days=7), suppress_for)
+
+    @staticmethod
+    def _resolve_policy(policy: FusionPolicy, model: TrainedModel | None) -> FusionPolicy:
+        """Fill the population guard in from the model card unless the policy sets it."""
+        if policy.min_model_population is not None or model is None:
+            return policy
+        validated = model.validated_min_population
+        return replace(policy, min_model_population=validated if validated is not None else POPULATION_NOT_VALIDATED)
+
+    def set_model(self, model: TrainedModel | None) -> None:
+        """Swap the supervised model (and its anomaly baseline) for new windows. The population
+        guard follows the new model card, so the policy hash changes with it."""
+        self.model = model
+        self.anomaly = model.anomaly if model is not None else None
+        self.policy = self._resolve_policy(self._configured_policy, model)
 
     # ------------------------------------------------------------------ identity
     @property
@@ -249,9 +274,16 @@ class Sentinel:
         return n
 
     def evaluate(self, fvs: Sequence[FeatureVector]) -> list[Decision]:
-        """Run detectors A-D and fusion on windows (no emission, no persistence)."""
+        """Run detectors A-D and fusion on windows (no emission, no persistence).
+
+        ``fvs`` holds whole tenant windows, as the window store closes them (every active
+        device of the tenant for a window end), so the tenant population of a window is
+        counted from the batch. A partial batch can only undercount, which makes the
+        population guard stricter, never looser.
+        """
         if not fvs:
             return []
+        population = Counter((fv.tenant_id, fv.window_end) for fv in fvs)
         probs = self.model.predict_many(fvs) if self.model is not None else None
         out: list[Decision] = []
         for i, fv in enumerate(fvs):
@@ -266,7 +298,8 @@ class Sentinel:
             anomaly = self.anomaly.score(fv) if self.anomaly is not None else None
             self.changepoints.update(fv)
             cps = self.changepoints.recent(fv.tenant_id, fv.entity_pseudonym, fv.window_end)
-            result = fusion_policy(hits, ml, anomaly, cps, fv, self.policy)
+            result = fusion_policy(hits, ml, anomaly, cps, fv, self.policy,
+                                   population=population[(fv.tenant_id, fv.window_end)])
             label, why = behavior_label(fv, result.strong_hits + result.weak_hits)
             out.append(Decision(fv, result, label, why, hits, ml, anomaly, cps, contacts))
         return out
@@ -423,4 +456,5 @@ class Sentinel:
         return finding
 
 
-__all__ = ["SENTINEL_VERSION", "Decision", "DecisionRecord", "EventRejected", "Sentinel", "SentinelStats"]
+__all__ = ["POPULATION_NOT_VALIDATED", "SENTINEL_VERSION", "Decision", "DecisionRecord", "EventRejected", "Sentinel",
+           "SentinelStats"]

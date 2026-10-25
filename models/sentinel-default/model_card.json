@@ -34,6 +34,7 @@
     "events": 354726,
     "hard_negative_devices": 12,
     "malicious_devices": 16,
+    "min_window_population": 108,
     "seed": 101,
     "windows": 14102
    },
@@ -43,6 +44,7 @@
     "events": 234008,
     "hard_negative_devices": 7,
     "malicious_devices": 10,
+    "min_window_population": 71,
     "seed": 202,
     "windows": 8495
    },
@@ -52,6 +54,7 @@
     "events": 525260,
     "hard_negative_devices": 16,
     "malicious_devices": 21,
+    "min_window_population": 147,
     "seed": 303,
     "windows": 18305
    },
@@ -61,6 +64,7 @@
     "events": 183817,
     "hard_negative_devices": 6,
     "malicious_devices": 7,
+    "min_window_population": 48,
     "seed": 404,
     "windows": 6363
    },
@@ -70,6 +74,7 @@
     "events": 406082,
     "hard_negative_devices": 12,
     "malicious_devices": 16,
+    "min_window_population": 111,
     "seed": 505,
     "windows": 14095
    },
@@ -79,6 +84,7 @@
     "events": 257162,
     "hard_negative_devices": 7,
     "malicious_devices": 10,
+    "min_window_population": 59,
     "seed": 606,
     "windows": 8467
    },
@@ -88,6 +94,7 @@
     "events": 530751,
     "hard_negative_devices": 16,
     "malicious_devices": 21,
+    "min_window_population": 160,
     "seed": 808,
     "windows": 18348
    },
@@ -97,6 +104,7 @@
     "events": 188974,
     "hard_negative_devices": 6,
     "malicious_devices": 7,
+    "min_window_population": 47,
     "seed": 909,
     "windows": 6341
    }
@@ -118,6 +126,7 @@
   "train_negative_windows": 37304,
   "train_positive_groups": 31,
   "train_positive_windows": 1370,
+  "validated_min_population": 47,
   "window": "24h",
   "windows_labeled": 94430,
   "windows_total": 94516
@@ -363,7 +372,8 @@
  "limitations": [
   "Trained on the AEGIS synthetic lab corpus unless stated otherwise in data.source; re-validate on operator shadow data before trusting operating points.",
   "Label is device-window maliciousness; behavior type is assigned by deterministic rules.",
-  "Prevalence features need at least 20 active devices per tenant window (missing otherwise)."
+  "Prevalence features need at least 20 active devices per tenant window (missing otherwise).",
+  "Validated for tenant windows of at least 47 active devices; the fusion policy abstains from model-only verdicts on smaller populations."
  ],
  "metrics": {
   "external_holdout_detector": {

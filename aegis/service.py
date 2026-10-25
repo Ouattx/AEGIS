@@ -1745,8 +1745,7 @@ class AegisService:
             previous = self.model.model_id if self.model is not None else None
             self.model = model
             for sentinel in self._sentinels.values():
-                sentinel.model = model
-                sentinel.anomaly = model.anomaly if model is not None else None
+                sentinel.set_model(model)
             payload = {"event": "model_activated", "model_id": model.model_id if model else None,
                        "model_version": model.version if model else None, "previous_model_id": previous,
                        "actor": actor, "reason": reason.strip()[:2000]}

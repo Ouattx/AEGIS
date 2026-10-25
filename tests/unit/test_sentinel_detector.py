@@ -356,3 +356,47 @@ def test_warm_restart_reproduces_detection_exactly(corpus, model, bundle):
     cold = Sentinel(model, bundle)
     cold_after = cold.process_batch(events[cut:]) + cold.flush(corpus.end)
     assert sorted(map(key, cold_after)) != sorted(map(key, after))  # a cold start really differs
+
+
+def test_population_guard_comes_from_the_model_card(model):
+    from dataclasses import replace
+
+    from aegis.sentinel.detector import POPULATION_NOT_VALIDATED
+    from aegis.sentinel.fusion import DEFAULT_FUSION_POLICY, FusionPolicy
+
+    smallest = model.card["data"]["validated_min_population"]
+    assert smallest == min(c["min_window_population"] for c in model.card["data"]["corpora"])
+    assert model.validated_min_population == smallest
+    s = Sentinel(model, None)
+    assert s.policy.min_model_population == smallest
+    # the guard is part of the policy hash recorded on findings and in the detector version
+    assert s.policy.policy_hash != DEFAULT_FUSION_POLICY.policy_hash
+    assert s.detector_version.endswith(s.policy.policy_hash[:12])
+    assert Sentinel(model, None, policy=FusionPolicy(min_model_population=40)).policy.min_model_population == 40
+    # a card that does not say what it was validated on gets no model-only verdicts (fail closed)
+    undocumented = replace(model, card={k: v for k, v in model.card.items() if k != "data"})
+    assert undocumented.validated_min_population is None
+    assert Sentinel(undocumented, None).policy.min_model_population == POPULATION_NOT_VALIDATED
+    assert Sentinel(None, None).policy.min_model_population is None
+    # swapping the model re-reads the new card; an explicitly configured guard stays
+    swapped = Sentinel(None, None)
+    swapped.set_model(model)
+    assert swapped.policy.min_model_population == smallest and swapped.anomaly is model.anomaly
+    swapped.set_model(undocumented)
+    assert swapped.policy.min_model_population == POPULATION_NOT_VALIDATED
+    pinned = Sentinel(model, None, policy=FusionPolicy(min_model_population=40))
+    pinned.set_model(undocumented)
+    assert pinned.policy.min_model_population == 40
+
+
+def test_min_window_population_counts_tenant_windows():
+    from aegis.sentinel.model import min_window_population
+    from test_sentinel_helpers import make_fv
+
+    end = T0 + timedelta(days=1)
+    fvs = ([make_fv(entity=f"p_{i}", window_end=end) for i in range(5)]
+           + [make_fv(entity=f"p_{i}", window_end=end + timedelta(hours=1)) for i in range(4)]
+           + [make_fv(entity=f"p_{i}", window_end=end, tenant="t2") for i in range(7)])
+    assert min_window_population(fvs) == 4
+    assert min_window_population(fvs + [make_fv({"coverage_h": 2.0}, window_end=T0 + timedelta(hours=2))]) == 1
+    assert min_window_population([]) is None

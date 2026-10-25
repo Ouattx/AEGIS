@@ -13,6 +13,8 @@ F1   strong IOC hit and (>= 2 independent origins, or model >= suspicious,  MALI
      or anomaly/change-point corroboration)
 F2   strong IOC hit alone                                                   SUSPICIOUS
 F2b  model >= suspicious, not yet persistent, no weak IOC hit               ABSTAIN
+F2c  model >= suspicious, no weak IOC hit, tenant population below the      ABSTAIN
+     model's validated minimum
 F3   model >= malicious and anomaly corroboration                           SUSPICIOUS
 F4   model >= malicious                                                     SUSPICIOUS
 F5   weak (contradicted / lookup-only / low-confidence) IOC + model >= sus. SUSPICIOUS
@@ -27,6 +29,14 @@ F11  anything else (model between benign and suspicious)                    ABST
 Model-driven rules (F3, F4, F6) additionally need the model to stay above the
 suspicious threshold for ``min_model_persistence`` consecutive windows of the entity:
 malware is persistent, a device being switched on is a one-window spike.
+
+They also need the window's tenant population (active devices of the tenant in that
+window) to be at least ``min_model_population``, the smallest population the model was
+trained and validated on (from its model card). Population-relative features
+(destination prevalence, rarity) do not transfer to smaller tenants, so a model-only
+verdict there is outside the model's validated envelope and abstains (F2c) instead.
+Rules where an indicator carries the evidence (F1, F2, F5) are unaffected. With
+``min_model_population`` set and the population unknown, the guard fails closed.
 
 A *strong* IOC hit is a verified contact (traffic actually sent to the indicator)
 with a fresh, uncontradicted indicator of effective confidence >= ``strong_ioc``.
@@ -61,7 +71,7 @@ CONTEXT_FEATURES = ("flow_rate_h", "bytes_out_rate_log", "unique_dst_ip", "dst_e
 
 @dataclass(frozen=True)
 class FusionPolicy:
-    policy_id: str = "sentinel-fusion/2"
+    policy_id: str = "sentinel-fusion/3"
     min_events: int = 20
     min_coverage_h: float = 1.0
     min_context_features: int = 4
@@ -71,6 +81,9 @@ class FusionPolicy:
     ml_benign: float = 0.3
     anomaly_corroborate: float = 0.95
     min_model_persistence: int = 2
+    #: smallest tenant population (active devices per window) model-only rules may act on;
+    #: None = no population guard (the detector fills it in from the model card)
+    min_model_population: int | None = None
 
     @property
     def policy_hash(self) -> str:
@@ -79,6 +92,14 @@ class FusionPolicy:
     def __post_init__(self) -> None:
         if not 0.0 <= self.ml_benign <= self.ml_suspicious <= self.ml_malicious <= 1.0:
             raise ValueError("thresholds must satisfy 0 <= benign <= suspicious <= malicious <= 1")
+        if self.min_model_population is not None and self.min_model_population < 1:
+            raise ValueError("min_model_population must be >= 1")
+
+    def population_validated(self, population: int | None) -> bool:
+        """Is the model validated for a tenant window with ``population`` active devices?"""
+        if self.min_model_population is None:
+            return True
+        return population is not None and population >= self.min_model_population
 
 
 DEFAULT_FUSION_POLICY = FusionPolicy()
@@ -137,8 +158,11 @@ def is_strong_hit(e: Evidence, policy: FusionPolicy = DEFAULT_FUSION_POLICY) -> 
 
 def fusion_policy(rule_hits: Sequence[Evidence], ml: MLScore | float | None, anomaly: AnomalyScore | None,
                   changepoint: Sequence[ChangePoint] | ChangePoint | None, fv: FeatureVector,
-                  policy: FusionPolicy = DEFAULT_FUSION_POLICY) -> FusionResult:
-    """Apply the pre-registered rules (module docstring) to one window."""
+                  policy: FusionPolicy = DEFAULT_FUSION_POLICY, *, population: int | None = None) -> FusionResult:
+    """Apply the pre-registered rules (module docstring) to one window.
+
+    ``population`` is the number of active devices of the tenant in this window.
+    """
     if isinstance(ml, (int, float)):
         ml = MLScore(float(ml), None, "unknown")
     cps: list[ChangePoint] = ([changepoint] if isinstance(changepoint, ChangePoint)
@@ -197,6 +221,7 @@ def fusion_policy(rule_hits: Sequence[Evidence], ml: MLScore | float | None, ano
     ml_sus = ml_p is not None and ml_p >= policy.ml_suspicious
     ml_mal = ml_p is not None and ml_p >= policy.ml_malicious
     persistent = ml is not None and ml.persistence >= policy.min_model_persistence
+    population_ok = policy.population_validated(population)
     if strong:
         if origins >= 2 or ml_sus or corroborated:
             if ml_sus:
@@ -210,17 +235,22 @@ def fusion_policy(rule_hits: Sequence[Evidence], ml: MLScore | float | None, ano
         return result(Verdict.ABSTAIN, "F2b_model_not_persistent", ml_p or 0.0, True,
                       f"elevated model probability in {ml.persistence if ml else 0} consecutive window(s) only "
                       f"(needs {policy.min_model_persistence})", True)
-    if ml_mal and anomaly_hi:
+    if ml_sus and not population_ok and not weak:
+        seen = f"{population} active devices" if population is not None else "an unknown population"
+        return result(Verdict.ABSTAIN, "F2c_population_unvalidated", ml_p or 0.0, True,
+                      f"elevated model probability, but the tenant window has {seen} and the model is "
+                      f"validated for {policy.min_model_population} or more", True)
+    if ml_mal and anomaly_hi and population_ok:
         # model and anomaly both derive from the operator's own telemetry (one origin):
         # never MALICIOUS on that alone
         return result(Verdict.SUSPICIOUS, "F3_model_corroborated", ml_p or 0.0, True,
                       "high model probability corroborated by per-class anomaly (single telemetry origin)")
-    if ml_mal:
+    if ml_mal and population_ok:
         return result(Verdict.SUSPICIOUS, "F4_model_only", ml_p or 0.0, True, "high model probability")
     if weak and ml_sus:
         return result(Verdict.SUSPICIOUS, "F5_weak_ioc_and_model", ml_p or 0.0, True,
                       "weak indicator match with elevated model probability")
-    if ml_sus and corroborated:
+    if ml_sus and corroborated and population_ok:
         return result(Verdict.SUSPICIOUS, "F6_model_and_anomaly", ml_p or 0.0, True,
                       "elevated model probability corroborated by anomaly/change-point")
     if weak:

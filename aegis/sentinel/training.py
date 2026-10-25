@@ -29,7 +29,7 @@ from aegis.contracts.models import FeatureVector, ObservationEvent, Verdict
 from aegis.lab.corpus import Corpus, generate_corpus
 from aegis.provenance.signing import KeyRing
 from aegis.sentinel.features import WindowName, WindowStore
-from aegis.sentinel.model import TrainedModel, train
+from aegis.sentinel.model import TrainedModel, min_window_population, train
 from aegis.sentinel.rules import IOCBundle, load_bundle
 
 DEFAULT_TRAIN_SEEDS = (101, 202, 303, 404, 505, 606, 808, 909)
@@ -104,7 +104,8 @@ def _seed_windows(args: tuple[int, int, int, float, str]) -> tuple[list[FeatureV
     fvs = extract_windows(corpus.events, flush_at=corpus.end)
     info = {"seed": seed, "devices": n_devices, "days": days, "events": len(corpus.events), "windows": len(fvs),
             "malicious_devices": len(corpus.malicious_devices()),
-            "hard_negative_devices": len(corpus.hard_negatives())}
+            "hard_negative_devices": len(corpus.hard_negatives()),
+            "min_window_population": min_window_population(fvs)}
     return fvs, lab_window_labels(corpus, fvs), lab_campaign_groups(corpus), info
 
 

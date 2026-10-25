@@ -118,12 +118,18 @@ Unit-level safety tests from the module owners also carry the `safety` marker:
   independent ground truth is in the integration test.
 - What is missing: the budget has to be agreed with the operator and measured on their telemetry over the pilot
   period. That cannot be done in the lab.
-- **Known risk, found while writing these tests.** On small lab populations (about 30 devices) the calibrated
-  model sometimes raises model-only alerts on benign IPTV boxes. With seed 11 and 30 devices, one benign
-  `android_tv_iptv` box gets a MALICIOUS verdict. With seed 17 and 30 devices, several boxes get SUSPICIOUS,
-  including one busy-box hard negative. The 40-device acceptance corpus and the 200-device model-card
-  evaluation show none. These alerts can never become enforcement (`test_iptv_false_alert.py`), but they count
-  against the false-alert budget. SENTINEL needs a population-size check before a pilot on a small segment.
+- **Small populations (resolved in the detector).** On lab tenants smaller than the model was trained on (about
+  30 devices) the calibrated model alone scored benign IPTV boxes high: seed 11 gave a model-only alert on an
+  `android_tv_iptv` box, seed 17 gave several, including an `iptv_busy_box` hard negative. Population-relative
+  features (destination prevalence, rarity) learned on 90-260 device tenants do not transfer. The fusion policy
+  now has a population guard (rule F2c, `min_model_population`, taken from the model card's
+  `data.validated_min_population`, 47 for the shipped model, the smallest tenant window in its training corpora,
+  and part of the policy hash): below it, model-only windows ABSTAIN and are held for review instead of alerting. Indicator-backed rules are unchanged. Regression:
+  `tests/safety/test_small_population_guard.py` (several 30-device seeds) and `test_iptv_false_alert.py`, which
+  also shows that a model-only alert let through by an overstated model card can never become enforcement.
+  Trade-off: on such small tenants, compromised devices seen only by the model (no signed indicator contact)
+  are ABSTAIN for review rather than SUSPICIOUS. Retraining on small tenant sizes would be needed to alert on
+  them.
 
 ### H. Security/privacy review completed: **Partial**
 

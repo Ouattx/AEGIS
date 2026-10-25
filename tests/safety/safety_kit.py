@@ -37,7 +37,7 @@ from aegis.mirror.rpz import RPZAdapter
 from aegis.oracle.llm import LLMResponse
 from aegis.oracle.tools import indicators_from_evidence
 from aegis.provenance.signing import Signer, sign_model
-from aegis.sentinel.model import load_default
+from aegis.sentinel.model import TrainedModel, load_default
 from aegis.service import AegisService
 
 #: one lab configuration for every world, so worlds are comparable device by device
@@ -85,11 +85,12 @@ def make_settings(tmp: Path, **kw: Any) -> Settings:
     return Settings(**base)
 
 
-def build_service(tmp: Path, *, clock: Clock | None = None, llm: Any | None = None) -> tuple[AegisService, RPZAdapter]:
+def build_service(tmp: Path, *, clock: Clock | None = None, llm: Any | None = None,
+                  model: TrainedModel | None = None) -> tuple[AegisService, RPZAdapter]:
     rpz = RPZAdapter(tmp / "enforcement" / "aegis.rpz")
     # the live RPZ adapter is bound to the enforcement tenant, as AEGIS_ENFORCEMENT_TENANT does in production
-    svc = AegisService(make_settings(tmp, enforcement_tenant=ENFORCE_TENANT), model=load_default(), adapter=rpz,
-                       llm=llm, use_env_llm=False, clock=clock)
+    svc = AegisService(make_settings(tmp, enforcement_tenant=ENFORCE_TENANT), model=model or load_default(),
+                       adapter=rpz, llm=llm, use_env_llm=False, clock=clock)
     return svc, rpz
 
 

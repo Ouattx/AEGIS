@@ -163,9 +163,12 @@ def test_policy_is_preregistered_and_hashed():
     assert DEFAULT_FUSION_POLICY.policy_hash == FusionPolicy().policy_hash
     assert FusionPolicy(ml_malicious=0.95).policy_hash != DEFAULT_FUSION_POLICY.policy_hash
     r = fusion_policy([], ml(0.01), None, None, FV)
-    assert r.policy_hash == DEFAULT_FUSION_POLICY.policy_hash and r.as_dict()["policy_id"] == "sentinel-fusion/2"
+    assert r.policy_hash == DEFAULT_FUSION_POLICY.policy_hash and r.as_dict()["policy_id"] == "sentinel-fusion/3"
     with pytest.raises(ValueError):
         FusionPolicy(ml_suspicious=0.95, ml_malicious=0.9)
+    assert FusionPolicy(min_model_population=90).policy_hash != DEFAULT_FUSION_POLICY.policy_hash
+    with pytest.raises(ValueError):
+        FusionPolicy(min_model_population=0)
 
 
 def test_stricter_policy_changes_outcome():
@@ -195,3 +198,27 @@ def test_malicious_is_reserved_for_verification_grade_evidence():
     assert fusion_policy([hit()], ml(0.999, persistence=5), anomaly(0.999), None, FV).verdict == Verdict.MALICIOUS
     assert format_probability(1.0) == ">0.99" and format_probability(0.5) == "0.50"
     assert format_probability(0.001) == "<0.01"
+
+
+def test_model_only_verdicts_abstain_below_the_validated_population():
+    """F2c: a population the model was not validated on never yields a model-only alert."""
+    guarded = FusionPolicy(min_model_population=90)
+    for args in ((ml(0.99), anomaly(0.99), None), (ml(0.97), None, None), (ml(0.7), None, CP)):
+        assert fusion_policy([], *args, FV, DEFAULT_FUSION_POLICY, population=30).verdict == Verdict.SUSPICIOUS
+        assert fusion_policy([], *args, FV, guarded, population=90).verdict == Verdict.SUSPICIOUS
+        small = fusion_policy([], *args, FV, guarded, population=30)
+        assert small.verdict == Verdict.ABSTAIN and small.rule == "F2c_population_unvalidated"
+        assert small.signal and small.requires_review and "30 active devices" in small.reasons[0]
+        # unknown population with a configured guard: fail closed
+        assert fusion_policy([], *args, FV, guarded).rule == "F2c_population_unvalidated"
+
+
+def test_population_guard_leaves_indicator_rules_alone():
+    guarded = FusionPolicy(min_model_population=90)
+    r = fusion_policy([hit()], ml(0.95), None, None, FV, guarded, population=30)
+    assert r.verdict == Verdict.MALICIOUS and r.rule == "F1_ioc_corroborated"
+    assert fusion_policy([hit()], None, None, None, FV, guarded, population=30).rule == "F2_ioc_only"
+    weak = hit(eff=0.54, contradicted=True)
+    r5 = fusion_policy([weak], ml(0.99), anomaly(0.99), None, FV, guarded, population=30)
+    assert r5.verdict == Verdict.SUSPICIOUS and r5.rule == "F5_weak_ioc_and_model"
+    assert fusion_policy([], ml(0.1), None, None, FV, guarded, population=30).rule == "F10_benign"

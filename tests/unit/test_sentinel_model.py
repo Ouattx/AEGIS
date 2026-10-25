@@ -106,6 +106,8 @@ def test_train_produces_calibrated_model_and_card(model, data):
     assert "ioc_contacts" in card["features"]["excluded"]
     assert card["split"]["shared_entities"] == 0
     assert card["data"]["source"] == "synthetic"
+    # every synthetic entity is active in every window: validated for that tenant size
+    assert card["data"]["validated_min_population"] == model.validated_min_population == 90 + 24
     assert model.anomaly is not None
 
 

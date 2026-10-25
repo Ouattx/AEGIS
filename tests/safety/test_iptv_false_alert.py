@@ -1,14 +1,21 @@
-"""Spec section 15 (benign IPTV untouched), worst case: the detector itself false-alerts.
+"""Spec section 15 (benign IPTV untouched) on a tenant smaller than the model was validated for.
 
-On some small lab populations the calibrated model raises a model-only alert on a
-benign IPTV box (shadow mode exists to measure exactly this). This test drives such
-an alert through the real workflow under a signed **active** policy and shows that
-it can never be verified, proposed or enforced: model-only evidence is a single
-origin, and the VERIFIED guard requires two independent origins or a signed IOC hit.
+On this 30-device lab population the calibrated model scores a benign IPTV box high.
+The shipped model's card says it was validated on tenant windows of 47+ active devices, so
+the fusion policy's population guard (F2c) holds the window for review as ABSTAIN:
+no alert counts against the shadow-pilot false-alert budget.
+
+Worst case: a model card that overstates its validated population lets the model-only
+alert through. That alert is driven through the real workflow under a signed
+**active** policy and can never be verified, proposed or enforced: model-only evidence
+is a single origin, and the VERIFIED guard requires two independent origins or a signed
+IOC hit.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
+from pathlib import Path
 from typing import Iterator
 
 import pytest
@@ -18,6 +25,7 @@ from aegis.contracts.models import CaseState, Verdict
 from aegis.lab.corpus import Corpus, generate_corpus
 from aegis.lab.iocs import lab_signer
 from aegis.provenance.signing import Signer
+from aegis.sentinel.model import TrainedModel, load_default
 from aegis.service import AegisService, ConflictError
 
 from safety_kit import LEGAL_BASIS, active_policy, build_service
@@ -28,10 +36,14 @@ TENANT = "small-isp"
 IPTV_PROFILES = frozenset({"android_tv_iptv", "iptv_busy_box"})
 
 
-@pytest.fixture(scope="module")
-def small_isp(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[AegisService, Corpus]]:
-    tmp = tmp_path_factory.mktemp("small-isp")
-    svc, rpz = build_service(tmp)
+def overstated_card_model() -> TrainedModel:
+    """The shipped model with a card that wrongly claims validation down to one device."""
+    model = load_default()
+    return replace(model, card={**model.card, "data": {**model.card["data"], "validated_min_population": 1}})
+
+
+def _small_isp(tmp: Path, model: TrainedModel | None = None) -> tuple[AegisService, Corpus]:
+    svc, rpz = build_service(tmp, model=model)
     corpus = generate_corpus(seed=11, days=2, n_devices=30, malicious_fraction=0.15, tenant_id=TENANT,
                              start=demo_start(2))
     paths = corpus.write_raw(tmp / "raw", zeek=False)
@@ -48,12 +60,39 @@ def small_isp(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[AegisS
     svc.trust_key("policy", operator.key_id, operator.public_pem())
     svc.load_policy(TENANT, "admin@isp", active_policy(svc, TENANT, operator, policy_id="small-isp-active"))
     svc.ingest_files(TENANT, [(paths["netflow"], "lab-netflow"), (paths["dns"], "lab-dns")], flush_at=corpus.end)
+    return svc, corpus
+
+
+@pytest.fixture(scope="module")
+def small_isp(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[AegisService, Corpus]]:
+    svc, corpus = _small_isp(tmp_path_factory.mktemp("small-isp"))
     yield svc, corpus
     svc.close()
 
 
-def test_benign_iptv_false_alert_is_never_enforceable(small_isp: tuple[AegisService, Corpus]) -> None:
+@pytest.fixture(scope="module")
+def overstated_isp(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[AegisService, Corpus]]:
+    svc, corpus = _small_isp(tmp_path_factory.mktemp("small-isp-overstated"), overstated_card_model())
+    yield svc, corpus
+    svc.close()
+
+
+def test_small_tenant_benign_iptv_gets_no_model_only_alert(small_isp: tuple[AegisService, Corpus]) -> None:
     svc, corpus = small_isp
+    findings = svc.list_findings(TENANT, limit=10_000).items
+    benign_alerts = [f for f in findings if f.verdict in (Verdict.MALICIOUS, Verdict.SUSPICIOUS)
+                     and not corpus.device(f.entity_pseudonym).malicious]
+    assert benign_alerts == []
+    # the high-scoring IPTV box is not silently dropped: it is held for a human as a signal-bearing ABSTAIN
+    held = [f for f in findings if f.verdict is Verdict.ABSTAIN and f.requires_review
+            and corpus.device(f.entity_pseudonym).profile in IPTV_PROFILES]
+    assert held
+    assert svc._sentinel(TENANT).stats.rules["F2c_population_unvalidated"] > 0
+    assert svc.metrics_summary(TENANT)["actions"]["enforcement_applied"] == 0
+
+
+def test_benign_iptv_false_alert_is_never_enforceable(overstated_isp: tuple[AegisService, Corpus]) -> None:
+    svc, corpus = overstated_isp
     false_alerts = []
     for f in svc.list_findings(TENANT, limit=10_000).items:
         device = corpus.device(f.entity_pseudonym)
@@ -61,7 +100,7 @@ def test_benign_iptv_false_alert_is_never_enforceable(small_isp: tuple[AegisServ
         if f.verdict in (Verdict.MALICIOUS, Verdict.SUSPICIOUS) and not device.malicious:
             false_alerts.append((f, device))
     iptv = [(f, d) for f, d in false_alerts if d.profile in IPTV_PROFILES]
-    assert iptv, "this corpus is chosen because the model false-alerts on a benign IPTV box"
+    assert iptv, "this corpus is chosen because the model false-alerts on a benign IPTV box without the guard"
 
     for finding, device in false_alerts:
         found = svc.cases.case_for_finding(TENANT, finding.finding_id)

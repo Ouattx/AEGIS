@@ -4,7 +4,7 @@
   "anomaly.json": "8adcd2d918c0e4f0f5f601b8cfd9d499aaabf80519a1b39f7cae149f941d6a8e",
   "booster.txt": "1b052c798752d98185f08ef032682076124320da7be3bdcef32beb993fce8638",
   "calibration.json": "765b63cf7c54da169b973fb3fbad3f5c35ad2bf603235037a345298c8e60995d",
-  "model_card.json": "6b1a4f651c7b0b552726eed57b48ae230aa92f77f99c45c65a0cd4c66f3a3020"
+  "model_card.json": "7cef434ce0fbccdbdabc5a0762f9e186a87365166b1177951a914428909003ff"
  },
  "format": "aegis.sentinel.model/1",
  "model_id": "sentinel-lgbm-b22cba443410719c"
