@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="AEGIS OMEGA SHIELD">
+<meta name="aegis-report-fingerprint" content="{{ p.fingerprint }}">
+<title>Shadow Proof-of-Value Report</title>
+<style>{{ css | safe }}</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="cover">
+  <div class="eyebrow">AEGIS OMEGA SHIELD &middot; Shadow-mode pilot</div>
+  <h1>Shadow Proof-of-Value Report</h1>
+  <p class="sub">{{ p.operator_name }} &middot; {{ p.period_start | d }} to {{ (p.period_end) | d }} ({{ p.period_days | num(1) }} days, end exclusive)</p>
+  <div class="meta">
+    <span>Tenant <b>{{ p.tenant_id }}</b></span>
+    <span>Generated <b>{{ p.generated_at | dt }}</b></span>
+    <span>Mode <b>read-only (alerts and reports)</b></span>
+    <span>Report fingerprint <b class="hash">{{ p.fingerprint | short(16) }}</b></span>
+  </div>
+  <nav class="toc" aria-label="Contents">
+    <a href="#summary">Summary</a><a href="#coverage">Devices observed</a><a href="#findings">Findings</a>
+    <a href="#cases">Top cases</a><a href="#operations">Operational metrics</a><a href="#cost">Cost</a>
+    <a href="#attestation">Zero-enforcement attestation</a><a href="#ledger">Ledger integrity</a>
+    {% if p.validation %}<a href="#validation">Validation</a>{% endif %}
+    <a href="#method">Methodology</a><a href="#limits">Limitations</a>
+  </nav>
+</header>
+
+<section class="card" id="summary">
+  <div class="eyebrow">Executive summary</div>
+  <h2>{{ p.headline }}</h2>
+  <div class="tiles">
+    <div class="tile"><div class="label">Devices observed</div>
+      <div class="value">{{ p.coverage.devices_observed | num if p.coverage else "n/a" }}</div>
+      <div class="note">{{ (p.coverage.device_days | num) ~ " device-days" if p.coverage else "coverage not supplied" }}</div></div>
+    <div class="tile"><div class="label">Alerts</div>
+      <div class="value">{{ p.alerts.alerts | num }}</div>
+      <div class="note">on {{ p.alerts.alerted_devices | num }} devices &middot; {{ p.alerts.abstain_for_review | num }} held as ABSTAIN</div></div>
+    <div class="tile"><div class="label">Verified by analysts</div>
+      <div class="value">{{ p.dispositions.verified | num }}</div>
+      <div class="note">device-days &middot; {{ p.dispositions.pending | num }} pending</div></div>
+    <div class="tile"><div class="label">False alerts / 10k device-days</div>
+      <div class="value">{{ p.false_alerts.per_10k | num(1) }}</div>
+      <div class="note">{% if p.false_alerts.unresolved_device_days %}upper bound {{ p.false_alerts.per_10k_upper | num(1) }}{% else %}all alerts resolved{% endif %}{% if p.false_alerts.budget_per_10k is not none %} &middot; budget {{ p.false_alerts.budget_per_10k | num(1) }}{% endif %}</div></div>
+    <div class="tile"><div class="label">Enforcement executed</div>
+      <div class="value">{{ p.attestation.live_executions | num }}</div>
+      <div class="note">{% if p.attestation.status == "attested" %}<span class="badge good">attested zero</span>{% elif p.attestation.status == "unverifiable" %}<span class="badge critical">unverifiable</span>{% else %}<span class="badge warning">recorded</span>{% endif %}</div></div>
+    <div class="tile"><div class="label">Ledger integrity</div>
+      <div class="value">{{ "Intact" if p.ledger.ok else "Failed" }}</div>
+      <div class="note">{% if p.ledger.ok %}<span class="badge good">{{ p.ledger.entries_checked | num }} entries verified</span>{% else %}<span class="badge critical">break at entry {{ p.ledger.first_bad_seq }}</span>{% endif %}</div></div>
+  </div>
+  <ul class="tight">
+    {% for line in p.summary %}<li>{{ line }}</li>{% endfor %}
+  </ul>
+</section>
+
+<section class="card" id="coverage">
+  <div class="eyebrow">1 &middot; Coverage</div>
+  <h2>Devices observed</h2>
+  {% if p.coverage %}
+  <p class="lede">Every rate in this report uses the population the sensors actually saw. A device-day is one pseudonymous device with at least one flow or DNS record on a UTC calendar day.</p>
+  <div class="tiles">
+    <div class="tile"><div class="label">Devices</div><div class="value">{{ p.coverage.devices_observed | num }}</div></div>
+    <div class="tile"><div class="label">Device-days</div><div class="value">{{ p.coverage.device_days | num }}</div></div>
+    <div class="tile"><div class="label">Telemetry records</div><div class="value">{{ p.coverage.events | num if p.coverage.events is not none else "n/a" }}</div></div>
+    <div class="tile"><div class="label">Sources</div><div class="value">{{ p.coverage.sources | length }}</div><div class="note">{{ p.coverage.sources | join(", ") }}</div></div>
+  </div>
+  {% else %}
+  <div class="callout warning"><p><b>Coverage not supplied.</b> Device and device-day counts were not provided to this report, so per-device-day rates are shown as n/a.</p></div>
+  {% endif %}
+  <h3>Alerted devices by device class</h3>
+  <p class="small">Shown for transparency. Device class is never an input to a verdict: a class with more alerts is not presumed compromised.</p>
+  <figure>{{ devices_svg }}</figure>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Device class</th><th class="r">Observed</th><th class="r">Alerted</th><th class="r">Alerted share</th><th class="r">False alerts / 10k device-days</th></tr></thead>
+    <tbody>
+    {% for r in p.device_classes %}
+      <tr><td>{{ r.device_class | label }}</td><td class="r num">{{ r.devices_observed | num if r.devices_observed is not none else "n/a" }}</td>
+        <td class="r num">{{ r.alerted_devices | num }}</td><td class="r num">{{ r.alert_rate | pct }}</td>
+        <td class="r num">{{ p.false_alerts.per_device_class.get(r.device_class) | num(1) }}</td></tr>
+    {% else %}<tr><td colspan="5" class="muted">No devices observed.</td></tr>{% endfor %}
+    </tbody></table></div>
+</section>
+
+<section class="card" id="findings">
+  <div class="eyebrow">2 &middot; Detection</div>
+  <h2>Findings by threat class</h2>
+  <p class="lede">Bars show alerts (malicious and suspicious findings) by analyst outcome. ABSTAIN findings carry a signal but not enough context for a verdict and are routed to analysts rather than counted as alerts.</p>
+  <div class="legend"><span><i style="background:{{ status.good }}"></i>verified</span><span><i style="background:{{ status.critical }}"></i>rejected (false alert)</span><span><i style="background:{{ status.neutral }}"></i>pending / inconclusive</span></div>
+  <figure>{{ classes_svg }}</figure>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Threat class</th><th class="r">Malicious</th><th class="r">Suspicious</th><th class="r">Abstain</th><th class="r">Devices</th><th class="r">Evidence items</th><th class="r">Max indep. origins</th><th class="r">Verified</th><th class="r">Rejected</th><th class="r">Median score</th></tr></thead>
+    <tbody>
+    {% for r in p.threat_classes %}
+      <tr><td>{{ r.label | label }}</td><td class="r num">{{ r.malicious }}</td><td class="r num">{{ r.suspicious }}</td><td class="r num">{{ r.abstain }}</td>
+        <td class="r num">{{ r.devices }}</td><td class="r num">{{ r.evidence_items | num }}</td><td class="r num">{{ r.max_independent_origins }}</td>
+        <td class="r num">{{ r.verified }}</td><td class="r num">{{ r.rejected }}</td><td class="r num">{{ r.median_score | num(2) }}</td></tr>
+    {% else %}<tr><td colspan="10" class="muted">No findings in this period.</td></tr>{% endfor %}
+    </tbody></table></div>
+  <h3>Findings per day</h3>
+  <div class="legend"><span><i style="background:{{ series[7] }}"></i>malicious</span><span><i style="background:{{ series[3] }}"></i>suspicious</span><span><i style="background:#b9b7ae"></i>abstain (held for review)</span></div>
+  <figure>{{ daily_svg }}</figure>
+</section>
+
+<section class="card" id="cases">
+  <div class="eyebrow">3 &middot; Evidence</div>
+  <h2>Top cases and their evidence trail</h2>
+  <p class="lede">Highest-severity cases of the period. Each evidence record shows its content hash and whether that hash still matches both the stored record and its provenance ledger entry. Each decision shows the ledger entry that recorded it.</p>
+  {% for c in p.top_cases %}
+  <div class="case">
+    <div class="case-head">
+      <div class="case-title">{{ c.label | label }} &middot; {{ c.device_class | label }} device <span class="mono">{{ c.entity_pseudonym | short(18) }}</span></div>
+      <div>
+        <span class="badge {{ 'critical' if c.severity in ('critical','high') else 'warning' if c.severity == 'medium' else 'neutral' }}">{{ c.severity }}</span>
+        <span class="badge {{ 'good' if c.state in ('VERIFIED','PROPOSED','APPROVED','CLOSED') else 'critical' if c.state == 'REJECTED' else 'neutral' }}">{{ c.state }}</span>
+      </div>
+    </div>
+    <div class="small">Verdict <b>{{ c.verdict }}</b> &middot; score {{ c.score | num(3) }} {{ "(calibrated probability)" if c.calibrated else "(uncalibrated)" }} &middot; window {{ c.window_start | dt }} to {{ c.window_end | dt }} &middot; {{ c.independent_origins }} independent origin(s) &middot; {{ c.counter_evidence }} counter-evidence &middot; case <span class="mono">{{ c.case_id | short(8) }}</span></div>
+    {% if c.explanation %}<p class="small" style="margin:8px 0 0;white-space:pre-line">{{ c.explanation }}</p>{% endif %}
+    <div class="tablewrap"><table>
+      <thead><tr><th>Evidence</th><th>Summary</th><th>Origin</th><th>SHA-256</th><th>Integrity</th></tr></thead>
+      <tbody>
+      {% for e in c.evidence %}
+        <tr><td>{{ e.kind | label }}{% if not e.supports %} <span class="badge warning">counter</span>{% endif %}</td><td>{{ e.summary }}</td><td class="small">{{ e.origin_source }}</td>
+          <td class="hash">{{ e.sha256 | short(16) }}</td>
+          <td>{% if e.integrity == "verified" %}<span class="badge good">verified</span>{% elif e.integrity == "tampered" %}<span class="badge critical">tampered</span>{% else %}<span class="badge warning">missing</span>{% endif %}</td></tr>
+      {% endfor %}
+      </tbody></table></div>
+    {% if c.evidence_total > c.evidence | length %}<div class="small">{{ c.evidence_total - (c.evidence | length) }} further evidence record(s) not shown.</div>{% endif %}
+    {% if c.decisions %}
+    <ul class="trail">
+      {% for d in c.decisions %}<li><b>{{ d.from_state }} &rarr; {{ d.to_state }}</b> by {{ d.actor }} at {{ d.at | dt }}: {{ d.reason }} {% if d.ledger_entry_hash %}<span class="hash">ledger {{ d.ledger_entry_hash | short(12) }}</span>{% endif %}</li>{% endfor %}
+    </ul>
+    {% else %}<div class="small" style="margin-top:6px">No analyst decision recorded yet (case awaiting triage).</div>{% endif %}
+    {% if c.snapshot_hash %}<div class="small">Anchored ledger snapshot <span class="hash">{{ c.snapshot_hash | short(16) }}</span></div>{% endif %}
+  </div>
+  {% else %}
+  <p class="muted">No cases in this period.</p>
+  {% endfor %}
+</section>
+
+<section class="card" id="operations">
+  <div class="eyebrow">4 &middot; Operations</div>
+  <h2>Operational metrics</h2>
+  <div class="grid2">
+    <div>
+      <h3>False alerts</h3>
+      <table><tbody>
+        <tr><td>Observed device-days</td><td class="r num">{{ p.false_alerts.device_days | num if p.false_alerts.device_days is not none else "n/a" }}</td></tr>
+        <tr><td>Alerting device-days rejected by analysts</td><td class="r num">{{ p.false_alerts.rejected_device_days | num }}</td></tr>
+        <tr><td>Alerting device-days unresolved</td><td class="r num">{{ p.false_alerts.unresolved_device_days | num }}</td></tr>
+        <tr><td><b>False alerts per 10k device-days</b></td><td class="r num"><b>{{ p.false_alerts.per_10k | num(2) }}</b></td></tr>
+        <tr><td>Upper bound (unresolved counted as false)</td><td class="r num">{{ p.false_alerts.per_10k_upper | num(2) }}</td></tr>
+        {% if p.false_alerts.budget_per_10k is not none %}<tr><td>Agreed false-alert budget</td><td class="r num">{{ p.false_alerts.budget_per_10k | num(2) }} {% if p.false_alerts.within_budget %}<span class="badge good">within</span>{% elif p.false_alerts.within_budget is not none %}<span class="badge critical">above</span>{% endif %}</td></tr>{% endif %}
+      </tbody></table>
+    </div>
+    <div>
+      <h3>Timing</h3>
+      <table><tbody>
+        <tr><td>Alert latency, median</td><td class="r num">{{ p.timing.alert_latency_p50_s | num(1) }} s</td></tr>
+        <tr><td>Alert latency, 95th percentile</td><td class="r num">{{ p.timing.alert_latency_p95_s | num(1) }} s</td></tr>
+        <tr><td>Confirmed onsets supplied / detected</td><td class="r num">{{ p.timing.onsets_supplied }} / {{ p.timing.onsets_detected }}</td></tr>
+        <tr><td>Detection delay, median</td><td class="r num">{{ (p.timing.detection_delay_median_h | num(2)) ~ " h" if p.timing.detection_delay_median_h is not none else "not measurable" }}</td></tr>
+        <tr><td>Detection delay, 90th percentile</td><td class="r num">{{ (p.timing.detection_delay_p90_h | num(2)) ~ " h" if p.timing.detection_delay_p90_h is not none else "not measurable" }}</td></tr>
+      </tbody></table>
+    </div>
+    <div>
+      <h3>Analyst effort (estimated)</h3>
+      <table><tbody>
+        <tr><td>Cases in period</td><td class="r num">{{ p.effort.cases | num }}</td></tr>
+        <tr><td>Dispositioned cases</td><td class="r num">{{ p.effort.dispositioned_cases | num }}</td></tr>
+        <tr><td><b>Estimated minutes per case</b></td><td class="r num"><b>{{ p.effort.est_minutes_per_case | num(1) }}</b></td></tr>
+        <tr><td>Estimated minutes per dispositioned case</td><td class="r num">{{ p.effort.est_minutes_per_dispositioned_case | num(1) }}</td></tr>
+        <tr><td>Estimated analyst hours, total</td><td class="r num">{{ p.effort.est_total_hours | num(1) }}</td></tr>
+        <tr><td>Elapsed first-to-last human decision, median</td><td class="r num">{{ (p.effort.measured_elapsed_median_h | num(2)) ~ " h" if p.effort.measured_elapsed_median_h is not none else "n/a" }}</td></tr>
+      </tbody></table>
+      <p class="small">Effort model (minutes): triage {{ p.effort.model.triage_minutes | num(1) }}, per evidence item {{ p.effort.model.minutes_per_evidence_item | num(2) }} (max {{ p.effort.model.max_evidence_items | num }} items), investigation {{ p.effort.model.investigation_minutes | num(1) }}, counter-hypothesis review {{ p.effort.model.counter_hypothesis_minutes | num(1) }}, disposition {{ p.effort.model.disposition_minutes | num(1) }}.</p>
+    </div>
+    <div>
+      <h3>Evidence coverage</h3>
+      <table><tbody>
+        <tr><td>Alerts citing evidence</td><td class="r num">{{ p.evidence.alerts_with_evidence | num }} / {{ p.alerts.alerts | num }}</td></tr>
+        <tr><td>Alerts with &ge; 2 independent origins</td><td class="r num">{{ p.evidence.alerts_with_two_origins | num }}</td></tr>
+        <tr><td>Evidence records re-verified</td><td class="r num">{{ p.evidence.evidence_items_checked | num }}</td></tr>
+        <tr><td>Integrity failures</td><td class="r num">{{ p.evidence.evidence_integrity_failures | num }}</td></tr>
+        <tr><td>Missing records</td><td class="r num">{{ p.evidence.evidence_missing | num }}</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+</section>
+
+<section class="card" id="cost">
+  <div class="eyebrow">5 &middot; Unit economics</div>
+  <h2>Cost per protected device-month</h2>
+  <p class="lede">Computed from the inputs below, all of which the operator can change. Period figures are scaled to a {{ "%.2f" | format(30.4375) }}-day month.</p>
+  <div class="tiles">
+    <div class="tile"><div class="label">Per protected device-month</div><div class="value">{{ p.cost.per_device_month | money(p.cost.currency) }}</div><div class="note">{{ p.cost.protected_devices | num if p.cost.protected_devices is not none else "n/a" }} protected devices</div></div>
+    <div class="tile"><div class="label">Monthly total</div><div class="value">{{ p.cost.monthly_total | money(p.cost.currency) }}</div><div class="note">{{ "operator inputs applied" if p.cost.operator_inputs_configured else "analyst time only" }}</div></div>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Cost item</th><th class="r">Monthly ({{ p.cost.currency }})</th><th>Basis</th></tr></thead>
+    <tbody>{% for l in p.cost.lines %}<tr><td>{{ l.item }}</td><td class="r num">{{ l.monthly | num(2) }}</td><td class="small">{{ l.basis }}</td></tr>{% endfor %}
+      <tr><td><b>Total</b></td><td class="r num"><b>{{ p.cost.monthly_total | num(2) }}</b></td><td></td></tr></tbody>
+  </table></div>
+</section>
+
+<section class="card" id="attestation">
+  <div class="eyebrow">6 &middot; Safety</div>
+  <h2>Zero-enforcement attestation</h2>
+  <div class="callout {{ 'good' if p.attestation.status == 'attested' else 'critical' if p.attestation.status == 'unverifiable' else 'warning' }}">
+    <h3>{{ {"attested": "Attested: no enforcement executed", "enforcement_recorded": "Enforcement recorded", "unverifiable": "Cannot attest"}[p.attestation.status] }}</h3>
+    <p>{{ p.attestation.statement }}</p>
+    <p class="small">Scope: {{ p.attestation.scope }}.</p>
+  </div>
+  <table><tbody>
+    <tr><td>Live enforcement executions</td><td class="r num">{{ p.attestation.live_executions }}</td></tr>
+    <tr><td>Dry-run (simulated) executions</td><td class="r num">{{ p.attestation.dry_run_executions }}</td></tr>
+    <tr><td>Cases moved to EXECUTED</td><td class="r num">{{ p.attestation.executed_case_transitions }}</td></tr>
+    <tr><td>Actions proposed (recorded, not executed)</td><td class="r num">{{ p.attestation.actions_proposed }}</td></tr>
+    <tr><td>Authorization decisions evaluated</td><td class="r num">{{ p.attestation.authorization_decisions }}</td></tr>
+    <tr><td>Active-mode operator policies loaded</td><td class="r num">{{ p.attestation.active_policies | length }}{% if p.attestation.active_policies %} <span class="small mono">{{ p.attestation.active_policies | join(", ") }}</span>{% endif %}</td></tr>
+    <tr><td>Shadow-mode operator policies</td><td class="r num">{{ p.attestation.shadow_policies }}</td></tr>
+  </tbody></table>
+  <p class="small">Enforcement is technically impossible without a signed operator policy in active mode with a legal sign-off reference, a human approval, an allowed authorization and a MIRROR simulation result of SAFE; each of those steps writes to the ledger verified below.</p>
+</section>
+
+<section class="card" id="ledger">
+  <div class="eyebrow">7 &middot; Provenance</div>
+  <h2>Ledger integrity verification</h2>
+  <div class="callout {{ 'good' if p.ledger.ok else 'critical' }}">
+    <h3>{{ "Hash chain intact" if p.ledger.ok else "Hash chain broken" }}</h3>
+    {% if p.ledger.ok %}
+    <p>All {{ p.ledger.entries_checked | num }} entries re-verified: contiguous sequence, every entry links to its predecessor, payload hashes match, timestamps never move backwards and the chain reaches the recorded head.{% if p.ledger.signatures_verified %} Every entry's Ed25519 signature verified against the trusted keyring.{% elif p.ledger.signed_entries %} {{ p.ledger.signed_entries | num }} entries are signed; signatures were not checked because no trusted keyring was supplied.{% else %} Entries are unsigned.{% endif %}</p>
+    {% else %}
+    <p>Verification failed at entry {{ p.ledger.first_bad_seq }}: {{ p.ledger.reason }}. Records from that point cannot be relied on until investigated.</p>
+    {% endif %}
+  </div>
+  <table><tbody>
+    <tr><td>Entries checked</td><td class="r num">{{ p.ledger.entries_checked | num }}</td></tr>
+    <tr><td>Signed entries</td><td class="r num">{{ p.ledger.signed_entries | num }}</td></tr>
+    <tr><td>Signatures verified</td><td class="r">{{ "yes" if p.ledger.signatures_verified else "no" }}</td></tr>
+    <tr><td>Head hash</td><td class="r hash">{{ p.ledger.head_hash }}</td></tr>
+    {% if p.ledger.snapshot_hash %}<tr><td>Snapshot at report time</td><td class="r hash">{{ p.ledger.snapshot_id }}<br>{{ p.ledger.snapshot_hash }}</td></tr>{% endif %}
+  </tbody></table>
+  <p class="small">Anyone with read access can re-run this check (<code>aegis ledger verify</code>) and compare the head hash and snapshot hash above with the live ledger; any later rewrite of history changes them.</p>
+</section>
+
+{% if p.validation %}
+<section class="card" id="validation">
+  <div class="eyebrow">8 &middot; Validation</div>
+  <h2>Comparison with independent labels</h2>
+  <p class="lede">Source: {{ p.validation.source }}. Device-day level, same alerting rule as above.</p>
+  <div class="tiles">
+    <div class="tile"><div class="label">Precision</div><div class="value">{{ p.validation.precision | num(3) }}</div></div>
+    <div class="tile"><div class="label">Recall</div><div class="value">{{ p.validation.recall | num(3) }}</div></div>
+    <div class="tile"><div class="label">False alerts / 10k device-days</div><div class="value">{{ p.validation.false_alerts_per_10k | num(1) }}</div></div>
+    <div class="tile"><div class="label">Base rate</div><div class="value">{{ (p.validation.positive_device_days / p.validation.device_days) | pct(2) if p.validation.device_days else "n/a" }}</div><div class="note">{{ p.validation.positive_device_days | num }} positive of {{ p.validation.device_days | num }} device-days</div></div>
+  </div>
+  <table><thead><tr><th></th><th class="r">Alerted</th><th class="r">Not alerted</th></tr></thead><tbody>
+    <tr><td>Labelled compromised</td><td class="r num">{{ p.validation.tp | num }}</td><td class="r num">{{ p.validation.fn | num }}</td></tr>
+    <tr><td>Labelled benign</td><td class="r num">{{ p.validation.fp | num }}</td><td class="r num">{{ p.validation.tn | num }}</td></tr>
+  </tbody></table>
+</section>
+{% endif %}
+
+<section class="card" id="method">
+  <div class="eyebrow">Methodology</div>
+  <h2>How these numbers were produced</h2>
+  <ul class="tight">{% for m in p.methodology %}<li>{{ m }}</li>{% endfor %}</ul>
+</section>
+
+<section class="card" id="limits">
+  <div class="eyebrow">Limitations</div>
+  <h2>What this report does not show</h2>
+  <ul class="tight">{% for m in p.limitations %}<li>{{ m }}</li>{% endfor %}</ul>
+</section>
+
+<footer class="foot">
+  AEGIS OMEGA SHIELD &middot; schema {{ p.schema_ }} &middot; fingerprint <span class="hash">{{ p.fingerprint }}</span><br>
+  Generated deterministically from the tenant's stores; no language model contributed to any figure or statement in this report.
+</footer>
+</div>
+</body>
+</html>

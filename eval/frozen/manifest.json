@@ -1,0 +1,53 @@
+{
+ "datasets": {
+  "high_prevalence": {
+   "description": "infection-heavy segment (about 8% of devices compromised during the window)",
+   "digest": "1285c583773b98006c1af6b5e0ec629d427579385a7c5894dd7f6c23d614ef18",
+   "spec": {
+    "days": 3,
+    "malicious_fraction": 0.08,
+    "n_devices": 200,
+    "name": "high_prevalence",
+    "seed": 4242,
+    "start": "2026-10-15T00:00:00+00:00",
+    "tenant_id": "bench-high"
+   },
+   "summary": {
+    "A_malicious_device_days": 39,
+    "B_hard_negative_device_days": 36,
+    "B_legitimate_device_days": 561,
+    "base_rate": 0.065,
+    "device_days": 600,
+    "devices": 200,
+    "events": 406154,
+    "hard_negative_devices": 12,
+    "malicious_devices": 16
+   }
+  },
+  "low_prevalence": {
+   "description": "typical residential segment (about 1% of devices compromised)",
+   "digest": "620a9f5c8974a7461b91b3cceefedfcccf45ded5fd1359f19ed434e72f4a9252",
+   "spec": {
+    "days": 3,
+    "malicious_fraction": 0.01,
+    "n_devices": 400,
+    "name": "low_prevalence",
+    "seed": 4343,
+    "start": "2026-10-22T00:00:00+00:00",
+    "tenant_id": "bench-low"
+   },
+   "summary": {
+    "A_malicious_device_days": 10,
+    "B_hard_negative_device_days": 72,
+    "B_legitimate_device_days": 1190,
+    "base_rate": 0.008333333333333333,
+    "device_days": 1200,
+    "devices": 400,
+    "events": 659200,
+    "hard_negative_devices": 24,
+    "malicious_devices": 4
+   }
+  }
+ },
+ "schema": "aegis.eval.frozen/1"
+}

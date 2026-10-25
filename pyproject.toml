@@ -35,6 +35,10 @@ aegis = "aegis.cli:main"
 [tool.setuptools.packages.find]
 include = ["aegis*"]
 
+[tool.setuptools.package-data]
+"aegis.reports" = ["templates/*.j2"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = ["safety: spec section 15 mandatory safety tests"]

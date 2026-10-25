@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="AEGIS OMEGA SHIELD benchmark harness">
+<title>SHIELD Benchmark Report</title>
+<style>{{ css | safe }}</style>
+</head>
+<body>
+<div class="sheet">
+{% set gate = r.release_gate %}
+<header class="cover">
+  <div class="eyebrow">AEGIS OMEGA SHIELD &middot; Independent evaluation protocol</div>
+  <h1>Detection Benchmark Report</h1>
+  <p class="sub">Frozen datasets, time-forward split, group isolation, paired bootstrap confidence intervals.</p>
+  <div class="meta">
+    <span>Generated <b>{{ r.generated_at[:16] | replace("T", " ") }} UTC</b></span>
+    <span>Model <b class="mono">{{ r.model.model_id }}</b></span>
+    <span>Bootstrap <b>{{ r.config.bootstrap }} device-cluster resamples</b></span>
+    <span>Runtime <b>{{ r.runtime_s }} s</b></span>
+  </div>
+  <nav class="toc" aria-label="Contents">
+    <a href="#gate">Release gate</a><a href="#datasets">Datasets</a><a href="#protocol">Protocol</a>
+    {% for name in blocks %}<a href="#b-{{ name }}">{{ name | label }}</a>{% endfor %}
+    <a href="#projections">Base rates</a><a href="#limits">Limitations</a>
+  </nav>
+</header>
+
+<section class="card" id="gate">
+  <div class="eyebrow">Summary</div>
+  <h2>Release gate: {{ "passed" if gate.passed else "not passed" }}</h2>
+  <p class="lede">Pre-registered rule (spec section 14): the candidate ({{ gate.candidate | label }}) must show a statistically supported improvement (95% interval of the paired difference excluding zero in the favourable direction) on at least one prioritized metric ({{ gate.config.improvement_metrics | join(", ") | replace("_", " ") }}) against every comparator, without a false-alert regression above {{ "%+.1f" | format(gate.config.max_false_alert_regression_per_10k) }} per 10k device-days (upper 95% bound of the paired difference). Pooled over all scenarios.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Comparator</th><th>Result</th><th>Reasons</th></tr></thead>
+    <tbody>{% for c in gate.comparisons %}
+      <tr><td>{{ c.comparator | label }}</td><td><span class="badge {{ 'good' if c.passed else 'critical' }}">{{ "pass" if c.passed else "fail" }}</span></td><td class="small">{{ c.reasons | join("; ") }}</td></tr>
+    {% endfor %}</tbody></table></div>
+  <p class="small">{{ gate.note }}</p>
+  <h3>Pooled results</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>System</th><th class="r">Precision</th><th class="r">Recall</th><th class="r">PR-AUC</th><th class="r">False alerts / 10k device-days</th><th class="r">Devices detected</th></tr></thead>
+    <tbody>{% for n, m in r.pooled.systems.items() %}
+      <tr><td><i style="display:inline-block;width:10px;height:10px;border-radius:3px;background:{{ colors[n] }}"></i> {{ n | label }}</td>
+      <td class="r num">{{ m.precision | f }}</td><td class="r num">{{ m.recall | f }}</td><td class="r num">{{ m.pr_auc | f }}</td>
+      <td class="r num">{{ m.false_alerts_per_10k | f(1) }}</td><td class="r num">{{ m.malicious_devices_detected }} / {{ m.malicious_devices }}</td></tr>
+    {% endfor %}</tbody></table></div>
+  <ul class="tight small">{% for n, d in r.systems.items() %}<li><b>{{ n | label }}</b>: {{ d }}</li>{% endfor %}</ul>
+</section>
+
+<section class="card" id="datasets">
+  <div class="eyebrow">Data</div>
+  <h2>Frozen datasets</h2>
+  <p class="lede">Dataset A = confirmed malicious device-days, B = legitimate device-days (including hard negatives such as busy licensed-IPTV boxes). Each dataset is identified by a content digest over every event and label and checked against the frozen manifest before evaluation.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Scenario</th><th class="r">Devices</th><th class="r">Events</th><th class="r">A: malicious device-days</th><th class="r">B: legitimate device-days</th><th class="r">B: hard-negative device-days</th><th class="r">Base rate</th><th>Frozen</th></tr></thead>
+    <tbody>{% for name, d in r.datasets.items() %}
+      <tr><td>{{ name | label }}<div class="small">{{ d.spec.description }}</div><div class="hash">{{ d.digest[:24] }}</div></td><td class="r num">{{ d.devices | f }}</td><td class="r num">{{ d.events | f }}</td>
+      <td class="r num">{{ d.A_malicious_device_days | f }}</td><td class="r num">{{ d.B_legitimate_device_days | f }}</td><td class="r num">{{ d.B_hard_negative_device_days | f }}</td>
+      <td class="r num">{{ d.base_rate | pct }}</td><td><span class="badge {{ 'good' if d.frozen_status in ('verified','frozen_now') else 'warning' }}">{{ d.frozen_status | label }}</span></td></tr>
+    {% endfor %}</tbody></table></div>
+  <p class="small">{% for k, v in r.systems_not_evaluated.items() %}<b>{{ k | label }}</b>: {{ v }}. {% endfor %}</p>
+</section>
+
+<section class="card" id="protocol">
+  <div class="eyebrow">Protocol</div>
+  <h2>Time-forward split and group isolation</h2>
+  {% set iso = r.isolation %}
+  <table><tbody>
+    <tr><td>Model</td><td>{{ r.model.source }} &middot; <span class="mono">{{ r.model.model_id }}</span> &middot; calibration <span class="mono">{{ r.model.calibration_id }}</span></td></tr>
+    <tr><td>Training data ends / evaluation starts</td><td>{{ iso.time_forward.train_end[:16] | replace("T", " ") }} / {{ iso.time_forward.first_eval_start[:16] | replace("T", " ") }} <span class="badge good">time-forward</span></td></tr>
+    <tr><td>Training seeds / evaluation seeds</td><td class="mono">{{ iso.seeds.train | join(", ") }} / {{ iso.seeds.eval | join(", ") }} (shared: {{ iso.seeds.shared | length }})</td></tr>
+    <tr><td>Devices shared</td><td>{{ iso.devices_shared }} &middot; <span class="small">{{ iso.devices_note }}</span></td></tr>
+    <tr><td>Campaign groups shared</td><td>{{ iso.campaign_groups_shared }}</td></tr>
+    <tr><td>C2 IP addresses shared</td><td>{{ iso.c2_ips_shared }}</td></tr>
+    <tr><td>C2 domain names shared</td><td>{{ iso.c2_domain_names_shared }} &middot; <span class="small">{{ iso.c2_note }}</span></td></tr>
+    <tr><td>Threat-feed contamination</td><td>{{ iso.feed_contamination }}</td></tr>
+    <tr><td>Supervised operating threshold</td><td>{{ r.config.supervised_threshold }}</td></tr>
+  </tbody></table>
+</section>
+
+{% for name, b in blocks.items() %}
+{% set ch = charts[name] %}
+<section class="card" id="b-{{ name }}">
+  <div class="eyebrow">{{ "Pooled over scenarios" if name == "pooled" else "Scenario" }}</div>
+  <h2>{{ name | label }}</h2>
+  <p class="lede">{{ b.devices | f }} devices, {{ b.device_days | f }} device-days, {{ b.positive_device_days | f }} compromised (base rate {{ b.base_rate | pct }}).{% if b.description is defined %} {{ b.description }}.{% endif %}</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>System</th><th class="r">TP</th><th class="r">FP</th><th class="r">FN</th><th class="r">TN</th><th class="r">Precision [95% CI]</th><th class="r">Recall [95% CI]</th><th class="r">PR-AUC [95% CI]</th><th class="r">FA / 10k [95% CI]</th></tr></thead>
+    <tbody>{% for n, m in b.systems.items() %}
+      <tr><td>{{ n | label }}</td><td class="r num">{{ m.tp }}</td><td class="r num">{{ m.fp }}</td><td class="r num">{{ m.fn }}</td><td class="r num">{{ m.tn }}</td>
+      <td class="r num">{{ m.precision | f }}<div class="small">{{ m.ci95.precision | ci }}</div></td>
+      <td class="r num">{{ m.recall | f }}<div class="small">{{ m.ci95.recall | ci }}</div></td>
+      <td class="r num">{{ m.pr_auc | f }}<div class="small">{{ m.ci95.pr_auc | ci }}</div></td>
+      <td class="r num">{{ m.false_alerts_per_10k | f(1) }}<div class="small">{{ m.ci95.false_alerts_per_10k | ci(1) }}</div></td></tr>
+    {% endfor %}</tbody></table></div>
+  <div class="legend">{% for n in b.systems %}<span><i style="background:{{ colors[n] }}"></i>{{ n | label }}</span>{% endfor %}</div>
+  <div class="grid2">
+    <figure>{{ ch.recall }}<figcaption>Recall with 95% bootstrap CI</figcaption></figure>
+    <figure>{{ ch.false_alerts_per_10k }}<figcaption>False alerts per 10k device-days with 95% bootstrap CI</figcaption></figure>
+    <figure>{{ ch.precision }}<figcaption>Precision with 95% bootstrap CI</figcaption></figure>
+    <figure>{{ ch.pr_auc }}<figcaption>PR-AUC with 95% bootstrap CI</figcaption></figure>
+  </div>
+  <h3>Precision-recall curves</h3>
+  <figure style="max-width:620px">{{ ch.pr }}<figcaption>Device-day PR curves; dots mark each system's operating point, the dashed line the base rate. External-style baselines are dashed.</figcaption></figure>
+  {% if b.paired_differences_ci95 %}
+  <h3>Paired differences (95% CI)</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Difference</th><th class="r">Precision</th><th class="r">Recall</th><th class="r">PR-AUC</th><th class="r">FA / 10k</th></tr></thead>
+    <tbody>{% for k, d in b.paired_differences_ci95.items() %}
+      <tr><td>{{ k | label }}</td><td class="r num">{{ d.precision | ci }}</td><td class="r num">{{ d.recall | ci }}</td><td class="r num">{{ d.pr_auc | ci }}</td><td class="r num">{{ d.false_alerts_per_10k | ci(1) }}</td></tr>
+    {% endfor %}</tbody></table></div>
+  {% endif %}
+  <h3>Per-device-class confusion matrices</h3>
+  <p class="small">TP / FP / FN / TN per device class. Device class is never a model or fusion input; this table checks that no class is over-flagged.</p>
+  {% set first = b.systems.values() | list | first %}
+  <div class="tablewrap"><table>
+    <thead><tr><th>Device class</th><th class="r">Device-days</th>{% for n in b.systems %}<th class="r">{{ n | label }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for klass, kc in first.per_device_class.items() %}
+      <tr><td>{{ klass | label }}</td><td class="r num">{{ kc.device_days | f }}</td>
+      {% for n, m in b.systems.items() %}{% set c = m.per_device_class[klass] %}<td class="r num mono">{{ c.tp }} / {{ c.fp }} / {{ c.fn }} / {{ c.tn }}</td>{% endfor %}</tr>
+    {% endfor %}</tbody></table></div>
+  <h3>Detection by behavior, delay and hard negatives</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>System</th>{% for lab in first.per_label %}<th class="r">{{ lab | label }} recall</th>{% endfor %}<th class="r">Delay median (h)</th><th class="r">Delay p90 (h)</th><th class="r">Hard-negative device-days alerted</th></tr></thead>
+    <tbody>{% for n, m in b.systems.items() %}
+      <tr><td>{{ n | label }}</td>{% for lab, pl in m.per_label.items() %}<td class="r num">{{ pl.recall | f(2) }}</td>{% endfor %}
+      <td class="r num">{{ m.detection_delay_hours_median | f(2) }}</td><td class="r num">{{ m.detection_delay_hours_p90 | f(2) }}</td>
+      <td class="r num">{{ m.hard_negative_device_days_alerted }} / {{ m.hard_negative_device_days }}</td></tr>
+    {% endfor %}</tbody></table></div>
+  {% if b.systems.ensemble is defined and b.systems.ensemble.abstain_only_device_days is defined %}
+  <p class="small">Ensemble ABSTAIN-only device-days (routed to review, not counted as alerts): {{ b.systems.ensemble.abstain_only_device_days }}, of which {{ b.systems.ensemble.abstain_only_positive_device_days }} compromised.</p>
+  {% endif %}
+</section>
+{% endfor %}
+
+<section class="card" id="projections">
+  <div class="eyebrow">Base rates</div>
+  <h2>What changes at other prevalences</h2>
+  <p class="lede">Measured pooled recall and false-positive rate projected to other base rates. "Worst case" uses the upper exact 95% bound of the false-positive rate, which matters when few or no false positives were observed. Analyst load assumes {{ r.config.analyst_minutes_per_alert }} minutes per alert.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>System</th><th class="r">Prevalence</th><th class="r">Precision (PPV) [95% CI]</th><th class="r">PPV, worst case</th><th class="r">Alerts / 10k</th><th class="r">False alerts / 10k</th><th class="r">FA / 10k, worst case</th><th class="r">Analyst h / 10k device-days</th></tr></thead>
+    <tbody>{% for n, rows in r.pooled.projections.items() %}{% for p in rows %}
+      <tr><td>{{ n | label if loop.first else "" }}</td><td class="r num">{{ p.prevalence | pct(1) }}</td><td class="r num">{{ p.ppv | f }}<div class="small">{{ p.ppv_ci95 | ci }}</div></td>
+      <td class="r num">{{ p.ppv_at_fpr_upper_exact | f }}</td><td class="r num">{{ p.alerts_per_10k | f(1) }}</td><td class="r num">{{ p.false_alerts_per_10k | f(1) }}</td>
+      <td class="r num">{{ p.false_alerts_per_10k_at_fpr_upper_exact | f(1) }}</td><td class="r num">{{ p.analyst_hours_per_10k | f(1) }}</td></tr>
+    {% endfor %}{% endfor %}</tbody></table></div>
+</section>
+
+<section class="card" id="limits">
+  <div class="eyebrow">Limitations</div>
+  <h2>How to read these results</h2>
+  <ul class="tight">{% for l in r.limitations %}<li>{{ l }}</li>{% endfor %}</ul>
+</section>
+
+<footer class="foot">AEGIS OMEGA SHIELD benchmark &middot; schema {{ r.schema }} &middot; Python {{ r.environment.python }}<br>Reproduce with <code>python -m eval.run_benchmark</code>; datasets are verified against <code>eval/frozen/manifest.json</code>.</footer>
+</div>
+</body>
+</html>
