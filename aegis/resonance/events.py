@@ -301,7 +301,7 @@ class SeriesSet:
     ``t`` is sorted by series then time; series ``s`` occupies ``t[offsets[s]:offsets[s+1]]``.
     """
     t: np.ndarray
-    sid: np.ndarray
+    sid: np.ndarray               # int32 series index of every event
     line: np.ndarray              # per series
     key: np.ndarray               # per series
     offsets: np.ndarray           # len n_series + 1
@@ -390,5 +390,5 @@ def prepare_series(table: EventTable, cfg: ResonanceConfig, *, key_map: np.ndarr
         counts = np.bincount(sid)
     first = np.flatnonzero(starts)
     offsets = np.concatenate([[0], np.cumsum(counts)]).astype(np.int64)
-    return SeriesSet(t=t, sid=sid.astype(np.int64), line=ln[first].astype(np.int32), key=ky[first].astype(np.int32),
+    return SeriesSet(t=t, sid=sid.astype(np.int32), line=ln[first].astype(np.int32), key=ky[first].astype(np.int32),
                      offsets=offsets, raw_counts=raw_counts_all[raw_sid[first]])

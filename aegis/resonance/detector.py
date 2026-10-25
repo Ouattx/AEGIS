@@ -136,20 +136,33 @@ def _tail_p(null: np.ndarray, obs: float, floor: float) -> float | None:
 
 @dataclass
 class _Rows:
-    """Series rows entering the statistics (single-key series + cluster series)."""
+    """Series rows entering the statistics (single-key series + cluster series).
+
+    Per-period matrices are stored for *informative* rows only (series with at least one
+    event pair inside the difference window); every other row's periodogram is identically
+    zero and maps to the shared zero row 0 through ``gidx``. Most (line, destination) series
+    of a day are one-off contacts, so this keeps the dominant memory term proportional to
+    the informative series instead of all series.
+    """
     line: np.ndarray
     comp: np.ndarray       # infrastructure component of the row's destination
     unit_key: np.ndarray   # key id (single) or -(component+1) for cluster rows
     count: np.ndarray
     raw: np.ndarray
-    G: np.ndarray          # (n_rows, n_periods) capped, persistence-weighted Z
+    gidx: np.ndarray       # (n_rows,) int32 row -> compact matrix row (0 = all-zero periodogram)
+    G: np.ndarray          # (n_compact, n_periods) float32 capped, persistence-weighted Z
     gF: np.ndarray         # (n_rows,) own-period contribution
-    Z: np.ndarray
-    R: np.ndarray
-    has: np.ndarray
+    Z: np.ndarray          # (n_compact, n_periods) float32
+    R: np.ndarray          # (n_compact, n_periods) float16
+    has: np.ndarray        # (n_compact, n_periods) bool
     pers: np.ndarray
-    times_src: list[tuple[SeriesSet, int]]   # where to fetch event times for a row
+    src_part: np.ndarray   # (n_rows,) int8 which SeriesSet holds the row's event times
+    src_series: np.ndarray  # (n_rows,) int32 series index inside that SeriesSet
+    parts: list[SeriesSet]
     index: dict[int, np.ndarray] | None = None   # unit key -> row ids (built lazily)
+
+    def times(self, row: int) -> np.ndarray:
+        return self.parts[int(self.src_part[row])].times(int(self.src_series[row]))
 
 
 class Resonance:
@@ -349,10 +362,12 @@ class Resonance:
         mask = involved[table.line]
         sub = table.select(mask)
         S = prepare_series(sub, cfg)
-        pg = periodogram(S, self.grid, cfg)
+        # a series needs two events to hold a pair: every other periodogram is identically zero
+        nz = np.flatnonzero(S.counts >= 2)
+        pg = periodogram(S, self.grid, cfg, rows=nz)
         pers = persistence(S, np.arange(S.n_series), start, end, cfg.persistence_block_s) \
             if cfg.persistence_weighting else np.ones(S.n_series, dtype=np.float32)
-        parts = [(S, pg, pers, S.key.astype(np.int64), comp_of_key[S.key].astype(np.int64))]
+        parts = [(S, pg, pers, S.key.astype(np.int64), comp_of_key[S.key].astype(np.int64), nz)]
         elig_comps = {u.component for u in eligible if len(u.members) > 1}
         if elig_comps and cluster_event_mask is not None:
             cm = cluster_event_mask & np.isin(comp_of_key[table.key], list(elig_comps))
@@ -360,37 +375,52 @@ class Resonance:
                 csub = table.select(cm)
                 kmap = comp_of_key.copy()
                 SC = prepare_series(csub, cfg, key_map=kmap)
-                pgc = periodogram(SC, self.grid, cfg)
+                nzc = np.flatnonzero(SC.counts >= 2)
+                pgc = periodogram(SC, self.grid, cfg, rows=nzc)
                 persc = persistence(SC, np.arange(SC.n_series), start, end, cfg.persistence_block_s) \
                     if cfg.persistence_weighting else np.ones(SC.n_series, dtype=np.float32)
                 comp = SC.key.astype(np.int64)
-                parts.append((SC, pgc, persc, -(comp + 1), comp))
-        lines, comps, ukeys, counts, raws, Zs, Rs, Hs, Ps, src = [], [], [], [], [], [], [], [], [], []
-        for SS, pp, pe, uk, cp in parts:
+                parts.append((SC, pgc, persc, -(comp + 1), comp, nzc))
+        lines, comps, ukeys, counts, raws, Zs, Rs, Hs, Ps, gidx, sp, ss = ([] for _ in range(12))
+        n_c = 1                                       # compact row 0 is the shared all-zero periodogram
+        for pi, (SS, pp, pe_, uk, cp, nz) in enumerate(parts):
             lines.append(SS.line.astype(np.int64))
             comps.append(cp)
             ukeys.append(uk)
             counts.append(SS.counts)
             raws.append(SS.raw_counts)
-            Zs.append(pp.Z)
-            Rs.append(pp.R)
-            Hs.append(pp.has_pairs)
-            Ps.append(pe)
-            src.extend((SS, i) for i in range(SS.n_series))
-        Z = np.vstack(Zs)
-        R = np.vstack(Rs).astype(np.float16)
-        H = np.vstack(Hs)
+            Ps.append(pe_)
+            keep = pp.has_pairs.any(axis=1)
+            g = np.zeros(SS.n_series, dtype=np.int32)
+            g[nz[keep]] = np.arange(n_c, n_c + int(keep.sum()), dtype=np.int32)
+            n_c += int(keep.sum())
+            gidx.append(g)
+            Zs.append(pp.Z[keep])
+            Rs.append(pp.R[keep])
+            Hs.append(pp.has_pairs[keep])
+            sp.append(np.full(SS.n_series, pi, dtype=np.int8))
+            ss.append(np.arange(SS.n_series, dtype=np.int32))
+        n_p = self.grid.n_periods
+        Z = np.vstack([np.zeros((1, n_p), dtype=np.float32), *Zs])
+        R = np.vstack([np.zeros((1, n_p), dtype=np.float16), *[r.astype(np.float16) for r in Rs]])
+        H = np.vstack([np.zeros((1, n_p), dtype=bool), *Hs])
+        del Zs, Rs, Hs
+        gi = np.concatenate(gidx)
         pe = np.concatenate(Ps).astype(np.float32)
-        G = np.clip(Z, -cfg.z_cap, cfg.z_cap) * pe[:, None]
+        # persistence weight of each compact row (compact rows are a permutation of informative rows)
+        pe_c = np.ones(len(Z), dtype=np.float32)
+        pe_c[gi[gi > 0]] = pe[gi > 0]
+        G = np.clip(Z, -cfg.z_cap, cfg.z_cap) * pe_c[:, None]
         G[:, ~usable] = 0.0
-        Zu = np.where(usable[None, :] & H, Z, -np.inf)
-        zmax = Zu.max(axis=1)
+        G[0] = 0.0
+        zmax_c = np.where(usable[None, :] & H, Z, -np.inf).max(axis=1)
+        zmax = np.where(gi > 0, zmax_c[gi], -np.inf)
         cnt_all = np.concatenate(counts)
         gF = np.where(np.isfinite(zmax) & (cnt_all >= cfg.free_min_events),
                       np.clip(zmax, -cfg.z_cap, cfg.z_cap), 0.0) * pe
-        return _Rows(np.concatenate(lines), np.concatenate(comps), np.concatenate(ukeys), np.concatenate(counts),
-                     np.concatenate(raws), np.ascontiguousarray(G, dtype=np.float32), gF.astype(np.float32),
-                     Z, R, H, pe, src)
+        return _Rows(np.concatenate(lines), np.concatenate(comps), np.concatenate(ukeys), cnt_all,
+                     np.concatenate(raws), gi, np.ascontiguousarray(G, dtype=np.float32), gF.astype(np.float32),
+                     Z, R, H, pe, np.concatenate(sp), np.concatenate(ss), [pp[0] for pp in parts])
 
     def _unit_rows(self, u: UnitInfo, rows: _Rows) -> np.ndarray:
         if rows.index is None:
@@ -472,13 +502,14 @@ class Resonance:
         cfg = self.cfg
         m = len(r)
         G = rows.G
-        col = G[r].sum(axis=0)
+        gidx = rows.gidx
+        col = G[gidx[r]].sum(axis=0)
         j = int(np.argmax(col))
         t_lock = float(col[j])
         t_free = float(rows.gF[r].sum())
         period = float(self.grid.periods[j]) if col[j] > 0 else None
         res = {"rows": r, "t_lock": t_lock, "t_free": t_free, "period": period, "j": j, "m": m}
-        informative = int(np.sum(np.any(rows.has[r][:, usable], axis=1))) if m else 0
+        informative = int(np.sum(np.any(rows.has[rows.gidx[r]][:, usable], axis=1))) if m else 0
         res["informative"] = informative
         if informative < cfg.min_lines:
             # too few lines carry any timing information (e.g. heavy sampling): abstain, never guess
@@ -500,7 +531,7 @@ class Resonance:
             pick = (rng.random((nb, m)) * nv[None, :]).astype(np.int64)
             choice = alts[mrange, pick]
             choice = np.where(ok[None, :], choice, r[None, :])               # lines w/o null keep own row
-            return G[choice].sum(axis=1), rows.gF[choice].sum(axis=1)        # (nb, n_p), (nb,)
+            return G[gidx[choice]].sum(axis=1), rows.gF[choice].sum(axis=1)  # (nb, n_p), (nb,)
 
         # pilot draws (not part of the p-value sample) standardize every candidate period:
         # studentized max-T, so periods that are common in the null (e.g. the 3600 s DNS-cache
@@ -575,18 +606,19 @@ class Resonance:
         dests = [table.keys.items[m] for m in u.members]
         lock = bool(res.get("lock_wins", True))
         usable = self.grid.usable(end - start, cfg.min_cycles)
-        pg = Periodogram(rows.Z[r], rows.R[r], rows.has[r])
+        rc = rows.gidx[r]
+        pg = Periodogram(rows.Z[rc], rows.R[rc], rows.has[rc])
         own_p, own_z, own_r = best_periods(pg, self.grid, usable)
         j = res["j"]
         period = res["period"]
         if period is not None and 0 < j < self.grid.n_periods - 1 and "mu" in res:
-            col = (rows.G[r].sum(axis=0) - res["mu"]) / res["sd"]
+            col = (rows.G[rc].sum(axis=0) - res["mu"]) / res["sd"]
             y0, y1, y2 = col[j - 1], col[j], col[j + 1]
             den = y0 - 2 * y1 + y2
             if den < 0:
                 off = float(np.clip(0.5 * (y0 - y2) / den, -0.5, 0.5))
                 period = float(self.grid.periods[j] * np.exp(off * np.log(self.grid.periods[1] / self.grid.periods[0])))
-        z_at = rows.Z[r, j]
+        z_at = rows.Z[rc, j]
         if lock:
             supports = z_at >= cfg.support_z
         else:
@@ -602,8 +634,7 @@ class Resonance:
         if lock and period:
             vec = []
             for row in r:
-                SS, i = rows.times_src[row]
-                tt = SS.times(i)
+                tt = rows.times(int(row))
                 if len(tt):
                     ph = 2 * np.pi * tt / period
                     v = np.exp(1j * ph).mean()
