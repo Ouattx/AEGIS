@@ -51,7 +51,9 @@ def make_session_factory(engine: Engine) -> sessionmaker[Session]:
 
 M = TypeVar("M", bound=BaseModel)
 
-_ID_FIELDS = ("finding_id", "case_id", "evidence_id", "action_id", "policy_id", "event_id")
+# A model's own id comes first; ``case_id`` is last because several models
+# (ProposedAction, investigation reports) also carry the case they belong to.
+_ID_FIELDS = ("finding_id", "evidence_id", "action_id", "policy_id", "event_id", "case_id")
 
 
 def _id_of(obj: BaseModel) -> str:
