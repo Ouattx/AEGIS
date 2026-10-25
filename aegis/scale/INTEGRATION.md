@@ -136,7 +136,7 @@ A distributed implementation maps shard `i` to a long-lived worker that owns `Li
 - Inputs are streamed (`aegis.ingest.parsers` yields record by record; `ingest_file` never loads
   a whole file), the coordinator buffers at most `batch_size` records, each worker holds one
   request (synchronous pipes), and `collect="count"` keeps no per-event output.
-- Window state per line is the dominant memory cost (measured in `eval/load/results`); it is owned
+- Window state per line is the dominant memory cost (measured in `eval/load/report`); it is owned
   by `aegis.sentinel.features.WindowStore`, not by this package.
 
 ## Coupling and tests

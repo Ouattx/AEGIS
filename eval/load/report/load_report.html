@@ -1,0 +1,118 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>AEGIS load test</title>
+<style>
+:root{
+  color-scheme: light;
+  --page:#f4f4f1; --surface:#ffffff; --surface-2:#f9f9f7;
+  --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#6f6e69; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --ring:rgba(11,11,11,.10);
+  --accent:#1c5cab; --accent-soft:#e8f0fb;
+  --good:#0ca30c; --good-ink:#006300; --good-soft:#e7f6e7;
+  --warning:#fab219; --warning-ink:#7a5200; --warning-soft:#fff5dc;
+  --critical:#d03b3b; --critical-ink:#9b1f1f; --critical-soft:#fbeaea;
+  --serious:#ec835a;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--page);color:var(--ink);
+  font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+.sheet{max-width:1040px;margin:0 auto;padding:32px 16px 64px}
+header.cover{background:var(--surface);border:1px solid var(--ring);border-radius:14px;padding:28px 32px;
+  margin-bottom:20px;position:relative;overflow:hidden}
+header.cover:before{content:"";position:absolute;inset:0 auto 0 0;width:6px;background:var(--accent)}
+.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+h1{font-size:28px;line-height:1.2;margin:6px 0 4px;letter-spacing:-.01em}
+h2{font-size:19px;margin:0 0 4px;letter-spacing:-.005em}
+h3{font-size:15px;margin:18px 0 6px}
+.sub{color:var(--ink-2);margin:0}
+.meta{display:flex;flex-wrap:wrap;gap:8px 24px;margin-top:14px;font-size:12.5px;color:var(--ink-2)}
+.meta b{color:var(--ink);font-weight:600}
+section.card{background:var(--surface);border:1px solid var(--ring);border-radius:14px;padding:22px 26px;
+  margin:0 0 18px;break-inside:avoid-page}
+section.card > .lede{color:var(--ink-2);margin:0 0 14px;max-width:72ch}
+.num{font-variant-numeric:tabular-nums}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:14px 0 4px}
+.tile{background:var(--surface-2);border:1px solid var(--ring);border-radius:10px;padding:12px 14px}
+.tile .label{font-size:12px;color:var(--ink-2);font-weight:600}
+.tile .value{font-size:26px;font-weight:650;letter-spacing:-.01em;margin-top:2px;line-height:1.15}
+.tile .note{font-size:11.5px;color:var(--ink-3);margin-top:3px}
+.badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:2px 10px;font-size:12px;
+  font-weight:600;border:1px solid transparent;white-space:nowrap}
+.badge:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.badge.good{background:var(--good-soft);color:var(--good-ink);border-color:#bfe5bf}
+.badge.warning{background:var(--warning-soft);color:var(--warning-ink);border-color:#f3dc9f}
+.badge.critical{background:var(--critical-soft);color:var(--critical-ink);border-color:#efc1c1}
+.badge.neutral{background:#efeeea;color:var(--ink-2);border-color:#dedcd5}
+.callout{border-radius:10px;padding:14px 16px;margin:12px 0;border:1px solid var(--ring);background:var(--surface-2)}
+.callout.good{background:var(--good-soft);border-color:#bfe5bf}
+.callout.warning{background:var(--warning-soft);border-color:#f3dc9f}
+.callout.critical{background:var(--critical-soft);border-color:#efc1c1}
+.callout h3{margin:0 0 4px}
+.callout p{margin:4px 0}
+table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0 4px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--grid);vertical-align:top}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);font-weight:650;
+  border-bottom:1px solid var(--axis)}
+td.r,th.r{text-align:right}
+tbody tr:last-child td{border-bottom:none}
+.tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+.hash{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;color:var(--ink-2);
+  word-break:break-all}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+figure{margin:8px 0 0}
+figcaption{font-size:12px;color:var(--ink-2);margin-top:4px}
+svg.chart{display:block;width:100%;height:auto;overflow:visible}
+svg.chart text{font-family:inherit}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--ink-2);margin:6px 0}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px}
+.case{border:1px solid var(--ring);border-radius:10px;padding:14px 16px;margin:12px 0;background:var(--surface-2);
+  break-inside:avoid-page}
+.case-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 12px;align-items:baseline}
+.case-title{font-weight:650}
+.trail{list-style:none;margin:8px 0 0;padding:0 0 0 14px;border-left:2px solid var(--grid)}
+.trail li{margin:0 0 6px;position:relative;font-size:12.5px}
+.trail li:before{content:"";position:absolute;left:-19px;top:6px;width:8px;height:8px;border-radius:50%;
+  background:var(--surface);border:2px solid var(--axis)}
+.small{font-size:12px;color:var(--ink-2)}
+.muted{color:var(--ink-3)}
+ul.tight{margin:6px 0;padding-left:20px}
+ul.tight li{margin:3px 0}
+footer.foot{font-size:11.5px;color:var(--ink-3);text-align:center;margin-top:24px}
+.toc{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;margin-top:14px}
+.toc a{color:var(--accent);text-decoration:none}
+@media (max-width:640px){
+  .sheet{padding:16px 16px 40px}
+  header.cover,section.card{padding:18px 16px}
+  h1{font-size:23px}
+  .tile .value{font-size:22px}
+}
+@media print{
+  @page{size:A4;margin:14mm 12mm}
+  body{background:#fff;font-size:11.5px}
+  .sheet{max-width:none;padding:0}
+  header.cover,section.card{border-color:#d8d7d0;box-shadow:none}
+  section.card{break-inside:auto}
+  .case,.tile,figure,table{break-inside:avoid}
+  .toc{display:none}
+  a{color:inherit;text-decoration:none}
+}
+
+body{max-width:1100px;margin:0 auto;padding:24px 16px;font-family:system-ui,sans-serif;background:var(--page);color:var(--ink)}
+.tbl{border-collapse:collapse;width:100%;margin:8px 0 20px;font-size:13px;background:var(--surface)}
+.tbl th,.tbl td{border:1px solid var(--grid);padding:5px 8px;text-align:right}
+.tbl th:first-child,.tbl td:first-child{text-align:left}
+.banner{background:var(--warning-soft);border:1px solid var(--warning);padding:10px 14px;border-radius:6px}
+.note{color:var(--ink-2);font-size:13px} h2{margin-top:28px}
+.wrap{overflow-x:auto}</style></head><body>
+<h1>AEGIS SHIELD load test</h1>
+<p class="banner"><strong>Synthetic traffic.</strong> Every number below was measured on generated telemetry on the
+host described here, not on operator data. Rows marked <em>extrapolated</em> are computed from measured per-unit costs;
+the method is stated next to them.</p>
+<p class="note">Run 2026-10-25T14:18:19+00:00 on Intel(R) Xeon(R) Processor @ 2.10GHz, 4 logical CPUs,
+Python 3.13.17. Host load average at start / end: 1.94 /
+2.76 (other processes were running on this host; wall-clock throughput is affected,
+CPU-time figures much less).</p>
+<h2>Throughput</h2><div class="wrap"><svg class="chart" viewBox="0 0 640 212" role="img" aria-label="throughput by scale"><line x1="230" y1="6" x2="230" y2="186" stroke="#e1e0d9" stroke-width="1"/><text x="230" y="202" text-anchor="middle" font-size="11" fill="#898781">0</text><line x1="315" y1="6" x2="315" y2="186" stroke="#e1e0d9" stroke-width="1"/><text x="315" y="202" text-anchor="middle" font-size="11" fill="#898781">12,500</text><line x1="400" y1="6" x2="400" y2="186" stroke="#e1e0d9" stroke-width="1"/><text x="400" y="202" text-anchor="middle" font-size="11" fill="#898781">25,000</text><line x1="485" y1="6" x2="485" y2="186" stroke="#e1e0d9" stroke-width="1"/><text x="485" y="202" text-anchor="middle" font-size="11" fill="#898781">37,500</text><line x1="570" y1="6" x2="570" y2="186" stroke="#e1e0d9" stroke-width="1"/><text x="570" y="202" text-anchor="middle" font-size="11" fill="#898781">50,000</text><text x="220" y="25" text-anchor="end" font-size="12.5" fill="#0b0b0b">10,000 lines, 1 core</text><rect x="230" y="12" width="185.2" height="18" rx="3" fill="#2a78d6"><title>10,000 lines, 1 core: ingest+validate 27,235.28 ev/s</title></rect><text x="421.2" y="25" font-size="12" fill="#52514e" class="num">27,235.3 ev/s</text><text x="220" y="55" text-anchor="end" font-size="12.5" fill="#0b0b0b">10,000 lines, sharded x4</text><rect x="230" y="42" width="249.9" height="18" rx="3" fill="#eb6834"><title>10,000 lines, sharded x4: ingest+windows+SENTINEL 36,754.23 ev/s</title></rect><text x="485.9" y="55" font-size="12" fill="#52514e" class="num">36,754.2 ev/s</text><text x="220" y="85" text-anchor="end" font-size="12.5" fill="#0b0b0b">100,000 lines, 1 core</text><rect x="230" y="72" width="146.6" height="18" rx="3" fill="#2a78d6"><title>100,000 lines, 1 core: ingest+validate 21,557.49 ev/s</title></rect><text x="382.6" y="85" font-size="12" fill="#52514e" class="num">21,557.5 ev/s</text><text x="220" y="115" text-anchor="end" font-size="12.5" fill="#0b0b0b">100,000 lines, sharded x4</text><rect x="230" y="102" width="200.1" height="18" rx="3" fill="#eb6834"><title>100,000 lines, sharded x4: ingest+windows+SENTINEL 29,432.19 ev/s</title></rect><text x="436.1" y="115" font-size="12" fill="#52514e" class="num">29,432.2 ev/s</text><text x="220" y="145" text-anchor="end" font-size="12.5" fill="#0b0b0b">1,000,000 lines, 1 core</text><rect x="230" y="132" width="123.1" height="18" rx="3" fill="#2a78d6"><title>1,000,000 lines, 1 core: ingest+validate 18,105.75 ev/s</title></rect><text x="359.1" y="145" font-size="12" fill="#52514e" class="num">18,105.7 ev/s</text><text x="220" y="175" text-anchor="end" font-size="12.5" fill="#0b0b0b">1,000,000 lines, sharded x4</text><rect x="230" y="162" width="156.1" height="18" rx="3" fill="#eb6834"><title>1,000,000 lines, sharded x4: ingest+windows+SENTINEL 22,957.79 ev/s</title></rect><text x="392.1" y="175" font-size="12" fill="#52514e" class="num">22,957.8 ev/s</text><line x1="230" y1="6" x2="230" y2="186" stroke="#c3c2b7" stroke-width="1"/></svg></div>
+<div class="wrap"><table class="tbl"><thead><tr><th>lines</th><th>events</th><th>simulated</th><th>ingest+validate ev/s (wall)</th><th>ingest CPU µs/ev</th><th>windows ev/s (wall)</th><th>windows CPU µs/ev</th><th>SENTINEL evaluate vectors/s</th><th>close+score+emit CPU µs/vector (findings/vector)</th><th>sharded x4 ev/s (wall)</th><th>sharded CPU µs/ev</th><th>required ev/s</th></tr></thead><tbody><tr><td>10,000</td><td>300,253</td><td>600 s</td><td>26,900.9</td><td>36.7</td><td>75,813.0</td><td>12.9</td><td>5,426.0</td><td>365.4 (0.02)</td><td>36,754.2</td><td>80.9</td><td>500.0</td></tr><tr><td>100,000</td><td>299,816</td><td>60 s</td><td>21,263.6</td><td>46.4</td><td>36,760.3</td><td>27.0</td><td>4,681.4</td><td>409.0 (0.16)</td><td>29,432.2</td><td>241.0</td><td>5,000.0</td></tr><tr><td>1,000,000</td><td>299,373</td><td>6 s</td><td>17,896.5</td><td>55.2</td><td>26,321.2</td><td>37.6</td><td>5,024.0</td><td>306.2 (0.04)</td><td>22,957.8</td><td>430.6</td><td>50,000.0</td></tr></tbody></table></div><p class='note'>event budget 300,000: 600 s of simulated traffic (30.03 events per line). event budget 300,000: 60 s of simulated traffic (3.00 events per line). event budget 300,000: 6 s of simulated traffic (0.30 events per line).</p><h2>Latency</h2><div class='wrap'><table class="tbl"><thead><tr><th>lines</th><th>ingest batch (1,000 records) p50 / p95 / p99 ms</th><th>window update p50 / p99 / p99.9 µs</th><th>window close (all lines) s</th><th>scoring batch (1,000 vectors) p50 / p99 ms</th></tr></thead><tbody><tr><td>10,000</td><td>31.7 / 44.0 / 267.1</td><td>8.7 / 34.6 / 216.1</td><td>1.4</td><td>181.7 / 210.8</td></tr><tr><td>100,000</td><td>39.4 / 57.4 / 382.2</td><td>8.1 / 39.6 / 260.6</td><td>7.7</td><td>216.4 / 285.5</td></tr><tr><td>1,000,000</td><td>47.0 / 66.8 / 352.0</td><td>7.5 / 57.3 / 283.2</td><td>18.9</td><td>199.4 / 240.5</td></tr></tbody></table></div><h3>Controlled-rate runs</h3><div class='wrap'><table class="tbl"><thead><tr><th>offered ev/s</th><th>share of capacity</th><th>achieved ev/s</th><th>kept up</th><th>latency p50 / p99 / max ms</th></tr></thead><tbody><tr><td>10,072.6</td><td>0.5</td><td>10,072.6</td><td>yes</td><td>0.2 / 0.8 / 21.8</td></tr><tr><td>18,130.6</td><td>0.9</td><td>17,632.0</td><td>yes</td><td>0.2 / 4.0 / 1,046.1</td></tr></tbody></table></div><h2>Memory</h2><p>Feature-window state: <strong>1,666 KB per line</strong> with a full 24 h window (<em>extrapolated in time</em>: RSS growth of one WindowStore holding 6 h of history for 300 lines, divided by buffered events; a 24 h window buffers 24 h of events per line, so bytes/line = bytes/event x 180 x 24 (extrapolated in time, linear: the store keeps per-event timestamps for periodicity)).</p><table class="tbl"><thead><tr><th>setting</th><th>bytes per buffered event</th><th>bytes per line (measured history)</th></tr></thead><tbody><tr><td>max_source_event_ids=10000</td><td>385.7</td><td>416,686.1</td></tr><tr><td>max_source_event_ids=0</td><td>363.1</td><td>392,287.6</td></tr></tbody></table><h2>RESONANCE hourly job</h2><div class='wrap'><table class="tbl"><thead><tr><th>lines</th><th>events (24 h)</th><th>table build s</th><th>detect s (wall)</th><th>CPU s</th><th>peak RAM growth MB</th><th>campaigns</th></tr></thead><tbody><tr><td>1,000</td><td>555,127</td><td>0.2</td><td>3.3</td><td>3.4</td><td>424.3</td><td>8</td></tr><tr><td>2,500</td><td>1,341,599</td><td>0.4</td><td>9.6</td><td>9.9</td><td>983.4</td><td>11</td></tr><tr><td>5,000</td><td>2,715,454</td><td>0.9</td><td>19.9</td><td>20.7</td><td>1,848.7</td><td>11</td></tr><tr><td>10,000</td><td>5,355,939</td><td>2.8</td><td>39.0</td><td>41.7</td><td>3,821.3</td><td>12</td></tr></tbody></table><table class="tbl"><thead><tr><th>lines</th><th>CPU s per hourly run</th><th>peak RAM GB</th><th>fits in 1 h on 1 core</th><th>basis</th></tr></thead><tbody><tr><td>10000</td><td>41.7</td><td>3.8</td><td>yes</td><td>measured</td></tr><tr><td>100000</td><td>525.8</td><td>33.0</td><td>yes</td><td>extrapolated (power law fitted on 4 measured line counts [1000, 2500, 5000, 10000])</td></tr><tr><td>1000000</td><td>6,427.1</td><td>293.0</td><td>no</td><td>extrapolated (power law fitted on 4 measured line counts [1000, 2500, 5000, 10000])</td></tr></tbody></table></div><p class='note'>Sharded RESONANCE preparation (10,000 lines, 5,355,939 events, 4 workers): 6.43 s wall vs 4.30 s single-node. stages 1-2 only (DNS join, destination population statistics); detection runs once on the coordinator (see aegis/scale/population.py for why it does not shard by destination).</p><h2>Cost model</h2><p class='note'>Prices: {&quot;eur_per_vcpu_hour&quot;: 0.04, &quot;eur_per_ram_gb_month&quot;: 2.5, &quot;eur_per_storage_gb_month&quot;: 0.1, &quot;target_utilization&quot;: 0.6, &quot;raw_retention_days&quot;: 30.0, &quot;retain_raw&quot;: true}</p><ul><li>120 flow records + 60 DNS queries per line-hour (configurable; sampled NetFlow at 1:1000 would be far lower)</li><li>CPU = measured CPU seconds per event (process_time, robust to other load on the host) divided by target utilization 0.6</li><li>window RAM per line = measured bytes per buffered event x 24 h of events (see memory section)</li><li>RESONANCE CPU/RAM per hourly run from measured runs (10k) and a fitted power law beyond</li><li>raw collector files retained 30 days</li><li>no evidence/ledger storage, network egress, or operations staff in this model</li></ul><div class='wrap'><table class="tbl"><thead><tr><th>lines</th><th>€ per million events</th><th>€ per line-month (total)</th><th>of which CPU</th><th>window RAM</th><th>RESONANCE RAM</th><th>raw storage</th><th>vCPUs needed</th><th>window RAM total GB</th><th>RESONANCE basis</th></tr></thead><tbody><tr><td>10000</td><td>1.39e-03</td><td>7.14e-03</td><td>1.82e-04</td><td>4.17e-03</td><td>9.55e-04</td><td>1.84e-03</td><td>0.1</td><td>16.7</td><td>measured</td></tr><tr><td>100000</td><td>1.94e-03</td><td>7.09e-03</td><td>2.55e-04</td><td>4.17e-03</td><td>8.24e-04</td><td>1.85e-03</td><td>0.9</td><td>166.6</td><td>extrapolated (power law fitted on 4 measured line counts [1000, 2500, 5000, 10000])</td></tr><tr><td>1000000</td><td>2.41e-03</td><td>7.07e-03</td><td>3.17e-04</td><td>4.17e-03</td><td>7.33e-04</td><td>1.86e-03</td><td>10.8</td><td>1,666.2</td><td>extrapolated (power law fitted on 4 measured line counts [1000, 2500, 5000, 10000])</td></tr></tbody></table></div><h2>Findings and limits</h2><ul><li>Single-core ingest+validate: 27,235 events per CPU-second at 10,000 lines; feature windows 77,383.</li><li>Sharded x4 (ingest + windows + SENTINEL, wall clock) vs one core doing ingest + windows (CPU time): 10,000 lines 1.82x, 100,000 lines 2.16x, 1,000,000 lines 2.13x (speed-up is limited by the single coordinator, which reads, identifies and routes every record, and by other processes sharing this host).</li><li>At 1,000,000 lines the configured traffic needs 50,000 events/s; one coordinator handled 22,958 events/s here, so a deployment at that size runs several coordinators fed by collector-side partitioning (Kafka partitions keyed with aegis.scale.kafka_partition_for_line).</li><li>Feature-window memory dominates at scale: about 1,666 KB per line for a 24 h window (1,666 GB at 1,000,000 lines). The store keeps per-event timestamps for periodicity features; bounding them (reservoirs) in aegis.sentinel.features is the main lever.</li><li>RESONANCE at 1,000,000 lines (extrapolated (power law fitted on 4 measured line counts [1000, 2500, 5000, 10000])): 6,427 CPU s and 293 GB per hourly run. Detection is not sharded by destination (the permutation null needs every destination of each line), so at this size the population must be split into independent sub-populations (e.g. per region / BNG), each tested on its own.</li><li>Sharded RESONANCE preparation (10,000 lines, 4 workers) took 6.4 s vs 4.3 s single-node: at this size shipping the frames to worker processes costs more than the join saves; it pays off only when the line shards already hold their data (Kafka / Kubernetes executors), not with the local executor.</li><li>1M-line rows process the same event budget as smaller scales over a shorter simulated window; throughput and per-line state lookups are measured with 1M distinct lines, full-day quantities are extrapolated as stated.</li></ul></body></html>

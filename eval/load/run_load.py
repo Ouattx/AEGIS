@@ -1,6 +1,6 @@
 """AEGIS load test: throughput, latency, memory and cost at 10k / 100k / 1M subscriber lines.
 
-    python -m eval.load.run_load --out eval/load/results            # full run (about 10 minutes, 4 cores)
+    python -m eval.load.run_load --out eval/load/report            # full run (about 10 minutes, 4 cores)
     python -m eval.load.run_load --out /tmp/load --quick        # smoke run (about 1 minute)
 
 All traffic is SYNTHETIC (``eval.load.synth``; RESONANCE stages use ``aegis.resonance.sim``).
@@ -699,7 +699,7 @@ def findings(report: dict[str, Any]) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out", default="eval/load/results")
+    ap.add_argument("--out", default="eval/load/report")
     ap.add_argument("--quick", action="store_true", help="small event budgets (smoke run)")
     ap.add_argument("--scales", default=None, help="comma-separated line counts (default 10000,100000,1000000)")
     ap.add_argument("--events-per-scale", type=int, default=None)
