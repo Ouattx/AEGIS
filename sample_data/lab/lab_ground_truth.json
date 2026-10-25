@@ -1,0 +1,77 @@
+{
+ "entity_aliases": {
+  "p_1f39c76124c60e582809581bf550e847": "p_b4f9d676da694b76c35d86c526e8f1c6",
+  "p_2f1d65d8dbcbdc4f68183966a27a00d5": "p_e5f02a93b2ad81fb9b6c3ca03bd25382",
+  "p_576a7f8c6651ff27a5f9b557e02f3708": "p_a20ca7a6ce7f0276b518814d2f6862bb",
+  "p_99ad2eaaaf5374ffc7557bfe1a96510c": "p_0d1b79fe527c14a9bf3318106ffe609b",
+  "p_a7ce8b51102f48d24655e10d56ed60b1": "p_7a1fa49656d74b831ea3fddbb96257bf",
+  "p_cd243cceca446ebaa17eb1e3c9247e7e": "p_1265457df84fa22f1a3e80216a3c38af",
+  "p_fa940da35576aea83ce854a85086a1e8": "p_508f7e5edbcb3dc7b4042f793d0f39e0",
+  "p_fdd85fde50674f28bc0af3087cbe90ee": "p_c9f8b7abccb49589b04a513022857fb1"
+ },
+ "malicious_infrastructure": {
+  "malicious": [
+   {
+    "c2_domains": [
+     "api.tvsync-update.example",
+     "cfg.boxhelper.example",
+     "upd2.tvsync-cdn.example"
+    ],
+    "c2_ips": [
+     "203.0.113.203",
+     "203.0.113.16",
+     "203.0.113.118"
+    ],
+    "c2_port": 443,
+    "c2_protocol": "tcp",
+    "cohosted_domains": [
+     "img.tvsync-update.example"
+    ],
+    "dga_seed": null,
+    "family": "badbox2_emu",
+    "novel_ips": [
+     "203.0.113.118"
+    ],
+    "proxy_controllers": [
+     "198.51.100.166",
+     "198.51.100.37"
+    ]
+   },
+   {
+    "c2_domains": [
+     "ntp.voidsync.example"
+    ],
+    "c2_ips": [
+     "203.0.113.49",
+     "203.0.113.106"
+    ],
+    "c2_port": 55600,
+    "c2_protocol": "tcp",
+    "cohosted_domains": [],
+    "dga_seed": 373947531,
+    "family": "vo1d_emu",
+    "novel_ips": [],
+    "proxy_controllers": []
+   },
+   {
+    "c2_domains": [
+     "cnc.botnet-ctl.test",
+     "cnc2.botnet-ctl.test"
+    ],
+    "c2_ips": [
+     "203.0.113.46",
+     "203.0.113.114"
+    ],
+    "c2_port": 48101,
+    "c2_protocol": "tcp",
+    "cohosted_domains": [],
+    "dga_seed": null,
+    "family": "mirai_emu",
+    "novel_ips": [
+     "203.0.113.114"
+    ],
+    "proxy_controllers": []
+   }
+  ]
+ }
+}

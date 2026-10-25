@@ -1,0 +1,9 @@
+entity_pseudonym,date,label,device_class,profile,malware_family,hard_negative,event_count
+p_1265457df84fa22f1a3e80216a3c38af,2026-10-01,benign,phone,phone,,0,469
+p_b4f9d676da694b76c35d86c526e8f1c6,2026-10-01,benign,laptop,laptop_vpn,,0,711
+p_a20ca7a6ce7f0276b518814d2f6862bb,2026-10-01,dga_activity,laptop,laptop,vo1d_emu,0,787
+p_e5f02a93b2ad81fb9b6c3ca03bd25382,2026-10-01,benign,android_tv,iptv_busy_box,,1,1315
+p_508f7e5edbcb3dc7b4042f793d0f39e0,2026-10-01,residential_proxy,android_tv,android_tv_iptv,badbox2_emu,0,2521
+p_7a1fa49656d74b831ea3fddbb96257bf,2026-10-01,c2_beaconing,smart_tv,smart_tv,badbox2_emu,0,1303
+p_0d1b79fe527c14a9bf3318106ffe609b,2026-10-01,ddos_bot,phone,phone,mirai_emu,0,1486
+p_c9f8b7abccb49589b04a513022857fb1,2026-10-01,benign,console,console,,0,6

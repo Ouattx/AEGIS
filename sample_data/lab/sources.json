@@ -1,0 +1,50 @@
+{
+ "lab-dns": {
+  "assume_utc_for_naive": false,
+  "collection_authorization_id": "auth-lab-synthetic-001",
+  "entity_field": "auto",
+  "format": null,
+  "max_clock_skew_s": 300,
+  "retention_days": 30,
+  "source_id": "lab-dns",
+  "source_kind": "dns",
+  "tenant_id": "demo",
+  "vantage": "device"
+ },
+ "lab-netflow": {
+  "assume_utc_for_naive": false,
+  "collection_authorization_id": "auth-lab-synthetic-001",
+  "entity_field": "auto",
+  "format": null,
+  "max_clock_skew_s": 300,
+  "retention_days": 30,
+  "source_id": "lab-netflow",
+  "source_kind": "netflow",
+  "tenant_id": "demo",
+  "vantage": "device"
+ },
+ "lab-zeek-conn": {
+  "assume_utc_for_naive": false,
+  "collection_authorization_id": "auth-lab-synthetic-001",
+  "entity_field": "src_ip",
+  "format": null,
+  "max_clock_skew_s": 300,
+  "retention_days": 30,
+  "source_id": "lab-zeek-conn",
+  "source_kind": "zeek_conn",
+  "tenant_id": "demo",
+  "vantage": "subscriber_line"
+ },
+ "lab-zeek-dns": {
+  "assume_utc_for_naive": false,
+  "collection_authorization_id": "auth-lab-synthetic-001",
+  "entity_field": "src_ip",
+  "format": null,
+  "max_clock_skew_s": 300,
+  "retention_days": 30,
+  "source_id": "lab-zeek-dns",
+  "source_kind": "zeek_dns",
+  "tenant_id": "demo",
+  "vantage": "subscriber_line"
+ }
+}

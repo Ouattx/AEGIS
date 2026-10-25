@@ -1,0 +1,404 @@
+{
+ "bundle_id": "lab-ioc-11-20261001",
+ "indicators": [
+  {
+   "confidence": 0.85,
+   "description": "",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-045fbc846cf3ab9f",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": "badbox2_emu",
+   "source": "feed:lab_cti_alpha",
+   "source_group": "grp:alpha",
+   "tags": [
+    "c2",
+    "dedicated_hosting"
+   ],
+   "threat_label": "c2_beaconing",
+   "type": "ip",
+   "value": "203.0.113.16",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.85,
+   "description": "",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-0bb1d266475cde2a",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": "mirai_emu",
+   "source": "feed:lab_cti_alpha",
+   "source_group": "grp:alpha",
+   "tags": [
+    "c2",
+    "ddos"
+   ],
+   "threat_label": "ddos_bot",
+   "type": "ip",
+   "value": "203.0.113.46",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.8,
+   "description": "",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-1bc30ce8a63fa404",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": "vo1d_emu",
+   "source": "feed:lab_cti_gamma",
+   "source_group": "grp:gamma",
+   "tags": [
+    "c2"
+   ],
+   "threat_label": "c2_beaconing",
+   "type": "ip",
+   "value": "203.0.113.49",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.6,
+   "description": "",
+   "expires_at": "2026-03-15T00:00:00Z",
+   "first_seen": "2025-05-19T00:00:00Z",
+   "indicator_id": "ind-1ddebab5ad4fe7df",
+   "last_seen": "2025-12-05T00:00:00Z",
+   "malware_family": "legacy_family",
+   "source": "feed:lab_cti_delta",
+   "source_group": "grp:delta",
+   "tags": [
+    "stale"
+   ],
+   "threat_label": "c2_beaconing",
+   "type": "domain",
+   "value": "old-tracker.example",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.95,
+   "description": "shared CDN edge with 37 legitimate co-tenants",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-3890716805d9c33e",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": null,
+   "source": "feed:operator_allowlist",
+   "source_group": "grp:operator",
+   "tags": [
+    "shared_cdn",
+    "allowlist"
+   ],
+   "threat_label": null,
+   "type": "ip",
+   "value": "198.18.0.81",
+   "verdict": "benign"
+  },
+  {
+   "confidence": 0.8,
+   "description": "",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-439ab9f91a34a49e",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": "badbox2_emu",
+   "source": "feed:lab_cti_beta",
+   "source_group": "grp:beta",
+   "tags": [
+    "c2",
+    "cdn_fronted"
+   ],
+   "threat_label": "c2_beaconing",
+   "type": "domain",
+   "value": "img.tvsync-update.example",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.9,
+   "description": "BadBox-style TV box C2 (emulated)",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-44e058643478e015",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": "badbox2_emu",
+   "source": "feed:lab_cti_alpha",
+   "source_group": "grp:alpha",
+   "tags": [
+    "c2",
+    "tv_box"
+   ],
+   "threat_label": "c2_beaconing",
+   "type": "domain",
+   "value": "cfg.boxhelper.example",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.9,
+   "description": "",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-5ba9de23c81bcf08",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": "mirai_emu",
+   "source": "feed:lab_cti_alpha",
+   "source_group": "grp:alpha",
+   "tags": [
+    "c2",
+    "ddos"
+   ],
+   "threat_label": "ddos_bot",
+   "type": "domain",
+   "value": "cnc.botnet-ctl.test",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.85,
+   "description": "",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-720f883ba1bd88ea",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": "vo1d_emu",
+   "source": "feed:lab_cti_gamma",
+   "source_group": "grp:gamma",
+   "tags": [
+    "c2",
+    "tv_box"
+   ],
+   "threat_label": "c2_beaconing",
+   "type": "domain",
+   "value": "ntp.voidsync.example",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.85,
+   "description": "",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-76e7304ee6ea720e",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": "badbox2_emu",
+   "source": "feed:lab_cti_alpha",
+   "source_group": "grp:alpha",
+   "tags": [
+    "c2",
+    "dedicated_hosting"
+   ],
+   "threat_label": "c2_beaconing",
+   "type": "ip",
+   "value": "203.0.113.203",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.9,
+   "description": "republished from feed:lab_cti_alpha",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-a2e374f714b2b31c",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": "badbox2_emu",
+   "source": "feed:lab_cti_alpha_mirror",
+   "source_group": "grp:alpha",
+   "tags": [
+    "c2",
+    "syndicated"
+   ],
+   "threat_label": "c2_beaconing",
+   "type": "domain",
+   "value": "api.tvsync-update.example",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.9,
+   "description": "",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-30T18:00:00Z",
+   "indicator_id": "ind-a4fcbbf390978bf2",
+   "last_seen": "2026-10-01T00:00:00Z",
+   "malware_family": "vo1d_emu",
+   "source": "feed:lab_cti_gamma",
+   "source_group": "grp:gamma",
+   "tags": [
+    "dga",
+    "registered"
+   ],
+   "threat_label": "dga_activity",
+   "type": "domain",
+   "value": "5oxond46la4wfkb0mj.test",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.4,
+   "description": "registry claims this name is sinkholed (contradicts grp:alpha)",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-a586b06e80ea618b",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": null,
+   "source": "feed:lab_sinkhole_registry",
+   "source_group": "grp:sinkhole",
+   "tags": [
+    "sinkhole_claim"
+   ],
+   "threat_label": null,
+   "type": "domain",
+   "value": "cnc.botnet-ctl.test",
+   "verdict": "benign"
+  },
+  {
+   "confidence": 0.8,
+   "description": "",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-b4b6c74bd30336e5",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": "badbox2_emu",
+   "source": "feed:lab_cti_gamma",
+   "source_group": "grp:gamma",
+   "tags": [
+    "proxy_backconnect"
+   ],
+   "threat_label": "residential_proxy",
+   "type": "ip",
+   "value": "198.51.100.37",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.5,
+   "description": "edge IP observed serving a C2 hostname",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-b57d00322392f5e3",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": "badbox2_emu",
+   "source": "feed:lab_cti_beta",
+   "source_group": "grp:beta",
+   "tags": [
+    "c2",
+    "shared_infrastructure"
+   ],
+   "threat_label": "c2_beaconing",
+   "type": "ip",
+   "value": "198.18.0.81",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.9,
+   "description": "BadBox-style TV box C2 (emulated)",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-b808f9ecc9514283",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": "badbox2_emu",
+   "source": "feed:lab_cti_alpha",
+   "source_group": "grp:alpha",
+   "tags": [
+    "c2",
+    "tv_box"
+   ],
+   "threat_label": "c2_beaconing",
+   "type": "domain",
+   "value": "api.tvsync-update.example",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.9,
+   "description": "",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-30T18:00:00Z",
+   "indicator_id": "ind-bf7651eca76ff881",
+   "last_seen": "2026-10-01T00:00:00Z",
+   "malware_family": "vo1d_emu",
+   "source": "feed:lab_cti_gamma",
+   "source_group": "grp:gamma",
+   "tags": [
+    "dga",
+    "registered"
+   ],
+   "threat_label": "dga_activity",
+   "type": "domain",
+   "value": "iepp8xt77zndnckqu.test",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.8,
+   "description": "",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-c32b03c353340ef1",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": "badbox2_emu",
+   "source": "feed:lab_cti_gamma",
+   "source_group": "grp:gamma",
+   "tags": [
+    "proxy_backconnect"
+   ],
+   "threat_label": "residential_proxy",
+   "type": "ip",
+   "value": "198.51.100.166",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.7,
+   "description": "historic C2 IP; reassigned to a legitimate push service",
+   "expires_at": "2026-06-23T00:00:00Z",
+   "first_seen": "2025-08-27T00:00:00Z",
+   "indicator_id": "ind-c957eda9f29e9c4e",
+   "last_seen": "2026-03-15T00:00:00Z",
+   "malware_family": "legacy_family",
+   "source": "feed:lab_cti_delta",
+   "source_group": "grp:delta",
+   "tags": [
+    "stale"
+   ],
+   "threat_label": "c2_beaconing",
+   "type": "ip",
+   "value": "198.18.119.10",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.9,
+   "description": "",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-30T18:00:00Z",
+   "indicator_id": "ind-de093c6c3d83a27e",
+   "last_seen": "2026-10-01T00:00:00Z",
+   "malware_family": "vo1d_emu",
+   "source": "feed:lab_cti_gamma",
+   "source_group": "grp:gamma",
+   "tags": [
+    "dga",
+    "registered"
+   ],
+   "threat_label": "dga_activity",
+   "type": "domain",
+   "value": "ynlhc2ry3c7ltdtn.test",
+   "verdict": "malicious"
+  },
+  {
+   "confidence": 0.9,
+   "description": "republished from feed:lab_cti_alpha",
+   "expires_at": "2026-11-01T00:00:00Z",
+   "first_seen": "2026-09-10T00:00:00Z",
+   "indicator_id": "ind-e89569088f1acec2",
+   "last_seen": "2026-09-30T00:00:00Z",
+   "malware_family": "badbox2_emu",
+   "source": "feed:lab_cti_alpha_mirror",
+   "source_group": "grp:alpha",
+   "tags": [
+    "c2",
+    "syndicated"
+   ],
+   "threat_label": "c2_beaconing",
+   "type": "domain",
+   "value": "cfg.boxhelper.example",
+   "verdict": "malicious"
+  }
+ ],
+ "issued_at": "2026-09-30T23:00:00Z",
+ "issuer": "aegis-lab",
+ "schema": "aegis.ioc_bundle/1",
+ "signature": "yHId4mdgNqviAnCUGalHi+LarP0n9vcgN2JKiRjfnousBzZvHZ7E8AXWjYyuGztrqJycOt5F49KwTUqG68tCAQ==",
+ "signer_key_id": "lab-ioc-signer-11",
+ "version": "2026.09.30-lab.11"
+}

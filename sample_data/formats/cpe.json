@@ -1,0 +1,10 @@
+{"devices": [
+  {"device_id": "02:00:5e:10:00:01", "device_class": "android_tv",
+   "flows": [{"ts": "2026-10-01T20:00:00Z", "dst_ip": "198.18.0.20", "dst_port": 443, "proto": "tcp",
+              "bytes_out": 52000, "bytes_in": 41000000, "duration_ms": 60000}],
+   "dns": [{"ts": "2026-10-01T19:59:59.900Z", "qname": "vod01.streamcdn.example", "qtype": "A",
+            "rcode": "NOERROR", "answers": ["198.18.0.20"]}]},
+  {"device_id": "02:00:5e:10:00:02", "device_class": "camera",
+   "flows": [{"ts": "2026-10-01T20:00:00Z", "dst_ip": "198.18.56.10", "dst_port": 443, "proto": 6,
+              "bytes_out": 7400000, "bytes_in": 210000, "duration_ms": 60000}]}
+]}
