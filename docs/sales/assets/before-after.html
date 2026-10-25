@@ -1,0 +1,61 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+body{margin:0;background:#0d1320;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#e6ebf5}
+.wrap{width:1240px;padding:34px 40px 30px}
+h1{font-size:32px;margin:0}.sub{color:#93a0b8;font-size:16px;margin:6px 0 22px}
+.grid{display:grid;grid-template-columns:220px 1fr 1fr;border-radius:14px;overflow:hidden;border:1px solid #243049}
+.h{padding:14px 18px;font-weight:800;font-size:17px;letter-spacing:.3px}
+.hb{background:#3a1d24;color:#ff9ba8}.ha{background:#123527;color:#7ee2a8}.h0{background:#151d2e}
+.c{padding:12px 18px;font-size:14.5px;line-height:1.4;border-top:1px solid #243049}
+.k{background:#121a2a;font-weight:700;color:#cfd8ea}
+.b{background:#1a1418}.a{background:#0f1f19}
+.b::before{content:"✗ ";color:#ff6b7d;font-weight:800}.a::before{content:"✓ ";color:#3ddc84;font-weight:800}
+.chart{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.card{background:#121a2a;border:1px solid #243049;border-radius:14px;padding:16px 20px}
+.card h3{margin:0 0 4px;font-size:16px}.card p{margin:0 0 12px;color:#93a0b8;font-size:13px}
+.bar{display:grid;grid-template-columns:200px 1fr 120px;align-items:center;gap:10px;margin:9px 0;font-size:14px}
+.track{height:18px;background:#1b2538;border-radius:9px;overflow:hidden}.fill{height:100%;border-radius:9px}
+.v{text-align:right;font-weight:700}
+.foot{margin-top:16px;font-size:13px;color:#93a0b8;background:#151d2e;border:1px solid #243049;border-radius:10px;padding:10px 14px}
+</style></head><body><div class="wrap">
+<h1>An ISP without AEGIS vs with AEGIS</h1>
+<div class="sub">What changes for an operator's security team, customers and regulators.</div>
+<div class="grid">
+<div class="h h0"></div><div class="h hb">WITHOUT AEGIS (today)</div><div class="h ha">WITH AEGIS</div>
+
+<div class="c k">Finding infected homes</div><div class="c b">Learned late: customer complaints, abuse reports from other networks, external lists days or weeks later</div><div class="c a">Found from the ISP's own traffic: RESONANCE + GENOME spot campaigns within hours</div>
+
+<div class="c k">Brand-new botnets</div><div class="c b">Invisible until a vendor or feed lists their servers</div><div class="c a">Detected by behavior: no blocklist needed; early warning from the Box Farm</div>
+
+<div class="c k">False alarms</div><div class="c b">Blocklists catch shared CDNs and innocent customers</div><div class="c a">False-alarm budget set by the ISP, enforced statistically</div>
+
+<div class="c k">Behind the home router</div><div class="c b">"Something in this home is wrong", or nothing at all</div><div class="c a">Botnet family named and likely device ranked, with evidence</div>
+
+<div class="c k">Investigation</div><div class="c b">Hours across several tools; findings hard to explain</div><div class="c a">Copilot answers in English or French, every claim cited; full evidence trail</div>
+
+<div class="c k">Blocking</div><div class="c b">Manual, broad, risky; collateral discovered by angry customers</div><div class="c a">Collateral simulated first, signed approval, one-click rollback</div>
+
+<div class="c k">"Why did you do that?"</div><div class="c b">Scattered logs; hard to defend to a customer, regulator or judge</div><div class="c a">Signed, tamper-proof ledger; replay exactly what was known at the time</div>
+
+<div class="c k">Privacy</div><div class="c b">Deep packet inspection, or no visibility at all</div><div class="c a">Metadata only, pseudonymized: GDPR-friendly by design</div>
+
+<div class="c k">New threat variants</div><div class="c b">Wait for the vendor's next update</div><div class="c a">AI drafts detections, auto-tested, human-approved, live in shadow fast</div>
+
+<div class="c k">ISP's addresses used in attacks</div><div class="c b">IP ranges end up blocklisted; customers get CAPTCHAs and blocked emails</div><div class="c a">Homes taking part in DDoS or proxy abuse flagged at the source</div>
+
+<div class="c k">The customer</div><div class="c b">Slow internet, hijacked device, never told</div><div class="c a">Notified with clear steps to get clean</div>
+</div>
+
+<div class="chart">
+ <div class="card"><h3>False alerts per 10,000 homes per day</h3><p>Lab benchmark (simulated ISP, 1:100–1:1000 sampling). Lower is better.</p>
+  <div class="bar"><span>Per-home timer detection</span><div class="track"><div class="fill" style="width:100%;background:#ff6b7d"></div></div><span class="v">~9,400</span></div>
+  <div class="bar"><span>Static blocklist</span><div class="track"><div class="fill" style="width:18.6%;background:#ff9f43"></div></div><span class="v">~1,750</span></div>
+  <div class="bar"><span>AEGIS RESONANCE</span><div class="track"><div class="fill" style="width:0.6%;background:#3ddc84"></div></div><span class="v">0</span></div>
+ </div>
+ <div class="card"><h3>Infected homes needed to detect a campaign</h3><p>Lab benchmark (full visibility, 1:1 sampling). Lower = earlier detection.</p>
+  <div class="bar"><span>Static blocklist</span><div class="track"><div class="fill" style="width:100%;background:#ff9f43"></div></div><span class="v">only if already listed</span></div>
+  <div class="bar"><span>AEGIS RESONANCE</span><div class="track"><div class="fill" style="width:60%;background:#2f80ed"></div></div><span class="v">6</span></div>
+  <div class="bar"><span>AEGIS GENOME</span><div class="track"><div class="fill" style="width:30%;background:#3ddc84"></div></div><span class="v">3</span></div>
+ </div>
+</div>
+<div class="foot">Lab figures come from AEGIS's simulated ISP network, not real customers. Each operator's real before/after numbers are measured in a 4-week shadow pilot on its own traffic. "Without AEGIS" describes common industry practice, not any specific operator.</div>
+</div></body></html>
