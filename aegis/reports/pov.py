@@ -86,6 +86,8 @@ _VERIFIED_STATES = frozenset({CaseState.VERIFIED, CaseState.PROPOSED, CaseState.
 _DISPOSITION_RANK = {"verified": 3, "rejected": 2, "inconclusive": 1, "pending": 0}
 _SEVERITY_RANK = {"critical": 3, "high": 2, "medium": 1, "low": 0}
 _EXEC_TYPES = (EntryType.EXECUTION,)
+#: executor outcomes in which nothing was enforced
+_NOT_ENFORCED_STATUSES = frozenset({"refused", "failed"})
 
 
 def device_day_of(f: Finding) -> tuple[str, date]:
@@ -447,13 +449,23 @@ def _round(v: float | None, digits: int) -> float | None:
 def _attest(tenant_id: str, docstore: DocStore, ledger: Ledger, per: ReportPeriod, now: datetime,
             ledger_ok: bool) -> Attestation:
     entries = ledger.entries(tenant_id, as_of=now)
-    live = dry = proposed = authz = executed = 0
+    live = dry = refused = rolled_back = proposed = authz = executed = 0
     for e in entries:
         p = e.payload
         if e.entry_type in _EXEC_TYPES:
-            is_dry = p.get("dry_run") is True or str(p.get("status", "")).lower() == "dry_run"
-            dry += is_dry
-            live += not is_dry
+            # MIRROR executor convention: an "intent" entry precedes every adapter call and an
+            # "outcome" entry records its status. Anything unrecognised counts as live (fail closed).
+            if p.get("phase") == "intent":
+                continue
+            status = str(p.get("status", "")).lower()
+            if p.get("dry_run") is True or status == "dry_run":
+                dry += 1
+            elif status in _NOT_ENFORCED_STATUSES:
+                refused += 1
+            elif status == "rolled_back":
+                rolled_back += 1
+            else:
+                live += 1
         elif e.entry_type == EntryType.ACTION:
             proposed += 1
         elif e.entry_type == EntryType.AUTHORIZATION:
@@ -485,7 +497,8 @@ def _attest(tenant_id: str, docstore: DocStore, ledger: Ledger, per: ReportPerio
             + (", and no active-mode operator policy was loaded." if not active else
                "; note that an active-mode operator policy was loaded but never used."))
     return Attestation(status=status, statement=statement, scope=scope, live_executions=live,  # type: ignore[arg-type]
-                       dry_run_executions=dry, actions_proposed=proposed, authorization_decisions=authz,
+                       dry_run_executions=dry, refused_or_failed_executions=refused, rollbacks=rolled_back,
+                       actions_proposed=proposed, authorization_decisions=authz,
                        executed_case_transitions=executed, active_policies=sorted(active), shadow_policies=shadow)
 
 

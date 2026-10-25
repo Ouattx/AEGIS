@@ -168,6 +168,8 @@ class Attestation(_M):
     scope: str
     live_executions: int
     dry_run_executions: int
+    refused_or_failed_executions: int
+    rollbacks: int
     actions_proposed: int
     authorization_decisions: int
     executed_case_transitions: int

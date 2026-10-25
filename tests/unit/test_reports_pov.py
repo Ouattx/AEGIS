@@ -296,9 +296,23 @@ def test_attestation_counts_dry_runs_but_flags_live_execution():
     a = p.attestation
     assert a.status == "attested" and a.dry_run_executions == 2 and a.live_executions == 0
     assert a.actions_proposed == 1 and a.authorization_decisions == 1
-    env.ledger.append(T, EntryType.EXECUTION, "act-3", {"action_id": "act-3", "status": "applied"})
+    # MIRROR executor shape: intent entries are not executions; refused/failed outcomes enforce nothing
+    env.ledger.append(T, EntryType.EXECUTION, "act-4", {"phase": "intent", "operation": "execute", "dry_run": False})
+    env.ledger.append(T, EntryType.EXECUTION, "act-4", {"phase": "outcome", "operation": "execute",
+                                                        "status": "refused"})
+    env.ledger.append(T, EntryType.EXECUTION, "act-5", {"phase": "outcome", "operation": "execute",
+                                                        "status": "failed"})
+    mid = collect(env, coverage=cov(), generated_at=datetime.now(timezone.utc) + timedelta(minutes=1))
+    assert mid.attestation.status == "attested"
+    assert mid.attestation.refused_or_failed_executions == 2 and mid.attestation.live_executions == 0
+    env.ledger.append(T, EntryType.EXECUTION, "act-3", {"phase": "outcome", "operation": "execute",
+                                                        "status": "applied"})
+    env.ledger.append(T, EntryType.EXECUTION, "act-3", {"phase": "outcome", "operation": "rollback",
+                                                        "status": "rolled_back"})
+    env.ledger.append(T, EntryType.EXECUTION, "act-6", {"unexpected": "shape"})
     p2 = collect(env, coverage=cov(), generated_at=datetime.now(timezone.utc) + timedelta(minutes=1))
-    assert p2.attestation.status == "enforcement_recorded" and p2.attestation.live_executions == 1
+    assert p2.attestation.status == "enforcement_recorded" and p2.attestation.live_executions == 2  # fail closed
+    assert p2.attestation.rollbacks == 1
     assert "Enforcement actions are recorded" in " ".join(p2.summary)
 
 
@@ -420,3 +434,17 @@ def test_rejects_blank_tenant():
     env = Env()
     with pytest.raises(ValueError):
         collect_pov_report(" ", env.docs, env.ledger, PERIOD)
+
+
+def test_attestation_with_real_mirror_executor_refusal():
+    from aegis.contracts.models import ProposedAction
+    from aegis.mirror import DryRunAdapter, ExecutionStatus, Executor
+    env = Env()
+    action = ProposedAction(tenant_id=T, case_id="case-1", action_type=ActionType.DNS_SINKHOLE,
+                            targets=["c2.example"], created_by=ANALYST, created_at=datetime.now(timezone.utc))
+    rec = Executor(DryRunAdapter(), env.ledger).execute(action, None, ANALYST)
+    assert rec.status is ExecutionStatus.REFUSED
+    p = collect(env, coverage=cov(), generated_at=datetime.now(timezone.utc) + timedelta(minutes=1))
+    assert p.attestation.status == "attested"
+    assert p.attestation.live_executions == 0
+    assert p.attestation.refused_or_failed_executions + p.attestation.dry_run_executions >= 1
