@@ -80,3 +80,15 @@ def test_uniflow_export_abstains_instead_of_flagging(corpus):
     bots = {d.entity_pseudonym for d in corpus.malicious_devices() if d.malicious_label == "ddos_bot"}
     ddos = {v.entity_pseudonym: v.verdict for v in rep.verdicts if v.label == LABEL_DDOS}
     assert bots <= set(ddos) and {ddos[b] for b in bots} == {"abstain"}
+
+
+def test_flowspec_proposals_on_the_lab_only_target_emulated_victims(corpus, report):
+    from aegis.connectors import FlowSpecConfig, propose_flowspec
+
+    plan = propose_flowspec(report, FlowSpecConfig(source_prefixes=("100.64.0.0/10",)),
+                            context=DestinationContext(corpus.topology))
+    assert plan.proposals
+    for p in plan.proposals:
+        host = corpus.topology.host(p.match.destination.split("/")[0])
+        assert host is not None and host.kind == "victim"
+        assert p.action.kind == "rate_limit" and p.requires_operator_review
