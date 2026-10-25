@@ -40,7 +40,8 @@ Raw events are never retained. Each event is folded into its hop as
 Events arrive into a small per-entity pending buffer and are packed (numpy) at
 every hop boundary, so the hot path stays pure Python and the window is a handful of
 contiguous arrays per line. At the load-test traffic model (120 flows + 60 queries per
-line-hour) a full 24 h window is about 60 KB per line (``eval/load/report``).
+line-hour) a full 24 h window is about 75 KB per line of packed records and per-line objects,
+plus what the line adds to the shared vocabularies (measured in ``eval/load/report``).
 
 Bounds and exactness
 --------------------

@@ -63,5 +63,12 @@ def test_miniature_run_writes_json_and_html(tmp_path):
         assert s["sharded"]["feature_vectors"] == s["windows"]["window_close"]["feature_vectors"]
     assert set(report["cost"]["scales"]) == {"500", "2000"}
     assert report["resonance"]["projections"]["2000"]["basis"].startswith("extrapolated")
+    mem = report["window_memory"]
+    assert [x["hour"] for x in mem["series"]] == [1]          # one hour: still pending, not yet packed
+    assert 0 < mem["accounted_bytes_per_line"] <= mem["bytes_per_line_24h_window"]
+    assert mem["bound_bytes_per_line"] > 0 and mem["live_heap_check"]["live_bytes"] > 0
+    sub = report["resonance"]["subpopulation_bound"]
+    assert sub["lines_per_run"] == 300 and sub["at_scale"]["2000"]["runs"] == 7
+    assert "comparison" not in report                       # no earlier report in a fresh --out
     html = (tmp_path / "load_report.html").read_text()
     assert "Synthetic traffic" in html and "<script" not in html and "http" not in html.split("<body>")[1]

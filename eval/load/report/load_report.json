@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-25T14:18:19+00:00",
+  "generated_at": "2026-10-25T17:21:36+00:00",
   "synthetic": true,
   "config": {
     "scales": [
@@ -20,8 +20,8 @@
       10000
     ],
     "resonance_prep_lines": 10000,
-    "memory_lines": 300,
-    "memory_hours": 6.0,
+    "memory_lines": 500,
+    "memory_hours": 25.0,
     "paced_seconds": 15.0,
     "paced_fractions": [
       0.5,
@@ -43,16 +43,15 @@
     "python": "3.13.17",
     "platform": "Linux-6.18.44-fc-v153-x86_64-with-glibc2.39",
     "loadavg_start": [
-      1.94384765625,
-      1.826171875,
-      2.32373046875
+      0.88037109375,
+      1.20703125,
+      1.73583984375
     ],
     "loadavg_end": [
-      2.7578125,
-      3.0361328125,
-      2.77978515625
-    ],
-    "reused_line_path_stages_from": "2026-10-25T14:15:29+00:00"
+      1.26171875,
+      1.2734375,
+      1.52099609375
+    ]
   },
   "scales": [
     {
@@ -60,26 +59,26 @@
       "simulated_seconds": 600.0,
       "events": 300253,
       "events_per_line": 30.0253,
-      "generation_s": 4.5381393790012226,
+      "generation_s": 4.255711237005016,
       "required_events_per_s": 500.0,
       "duration_note": "event budget 300,000: 600 s of simulated traffic (30.03 events per line)",
       "ingest": {
         "events": 300253,
         "accepted": 300253,
         "quarantined": 0,
-        "wall_s": 11.161428381001315,
-        "cpu_s": 11.024412054,
-        "events_per_s_wall": 26900.947598345265,
-        "events_per_s_cpu": 27235.284614661952,
-        "cpu_us_per_event": 36.71707544637356,
+        "wall_s": 12.961355567000282,
+        "cpu_s": 12.849556404000001,
+        "events_per_s_wall": 23165.246755859906,
+        "events_per_s_cpu": 23366.79886525365,
+        "cpu_us_per_event": 42.79576358604244,
         "batch_records": 1000,
         "batch_latency_ms": {
-          "p50": 31.679575000453042,
-          "p95": 44.00736000025063,
-          "p99": 267.0815589990525,
-          "p99.9": 423.6001560988383,
-          "max": 431.9074989980436,
-          "mean": 37.07854248496247
+          "p50": 34.75323400198249,
+          "p95": 50.97117200057255,
+          "p99": 305.1284220055095,
+          "p99.9": 579.6486374958524,
+          "max": 611.2287629948696,
+          "mean": 43.05750277404193
         },
         "bytes_per_event": {
           "netflow_csv": 108.59407683752201,
@@ -89,51 +88,51 @@
       },
       "windows": {
         "events": 300253,
-        "wall_s": 3.9604429319988412,
-        "cpu_s": 3.880078575999999,
-        "events_per_s_wall": 75812.98484926329,
-        "events_per_s_cpu": 77383.22668442786,
-        "cpu_us_per_event": 12.922697112102124,
+        "wall_s": 5.0162028089980595,
+        "cpu_s": 4.981716012,
+        "events_per_s_wall": 59856.63088848929,
+        "events_per_s_cpu": 60270.99884392206,
+        "cpu_us_per_event": 16.591727682987347,
         "update_latency_us": {
-          "p50": 8.741,
-          "p95": 13.694,
-          "p99": 34.60891999999993,
-          "p99.9": 216.12346800000302,
-          "max": 623877.604,
-          "mean": 12.604379509946611
+          "p50": 14.295,
+          "p95": 25.97479999999993,
+          "p99": 47.553399999999904,
+          "p99.9": 114.55166800000087,
+          "max": 7339.713,
+          "mean": 16.21510979740419
         },
         "active_lines": 10000,
         "window_close": {
           "feature_vectors": 10000,
-          "wall_s": 1.3997039220012084,
-          "cpu_s": 1.3802991529999993,
-          "cpu_us_per_vector": 138.0299152999999
+          "wall_s": 3.8921397989979596,
+          "cpu_s": 3.8560116399999984,
+          "cpu_us_per_vector": 385.6011639999998
         },
-        "state_rss_mb": 131.395584
+        "state_rss_mb": 21.180416
       },
       "scoring": {
         "feature_vectors_scored": 10000,
         "feature_vectors_available": 10000,
-        "wall_s": 1.842967045999103,
-        "cpu_s": 1.8362087979999977,
-        "vectors_per_s_wall": 5426.032994843287,
-        "cpu_us_per_vector": 183.62087979999976,
+        "wall_s": 4.3497446609981125,
+        "cpu_s": 4.3258238559999995,
+        "vectors_per_s_wall": 2298.9855219927676,
+        "cpu_us_per_vector": 432.58238559999995,
         "batch_vectors": 1000,
         "batch_latency_ms": {
-          "p50": 181.68779199913843,
-          "p95": 209.40526065096492,
-          "p99": 210.8290329304873,
-          "p99.9": 211.14938169337984,
-          "max": 211.1849760003679,
-          "mean": 184.2920145001699
+          "p50": 419.8987189993204,
+          "p95": 519.7128861022065,
+          "p99": 525.0443716239533,
+          "p99.9": 526.2439558663464,
+          "max": 526.37724300439,
+          "mean": 434.9691334988165
         },
         "model_id": "sentinel-lgbm-b22cba443410719c",
         "close_score_emit": {
           "lines": 10000,
           "findings": 209,
-          "wall_s": 3.6748424079996767,
-          "cpu_s": 3.653792298000006,
-          "cpu_us_per_vector": 365.3792298000006,
+          "wall_s": 9.32219024200458,
+          "cpu_s": 9.276041777000003,
+          "cpu_us_per_vector": 927.6041777000003,
           "findings_per_vector": 0.0209
         },
         "note": null
@@ -144,15 +143,15 @@
         "shards": 8,
         "events": 300253,
         "published": 300253,
-        "ingest_wall_s": 8.169210197000211,
-        "events_per_s_wall": 36754.22626660469,
-        "close_wall_s": 1.7046312079983181,
+        "ingest_wall_s": 7.458821790998627,
+        "events_per_s_wall": 40254.74912972824,
+        "close_wall_s": 3.10297655499744,
         "feature_vectors": 10000,
         "findings": 209,
-        "coordinator_cpu_s": 2.3470190439999996,
-        "worker_cpu_s": 21.94420106,
-        "total_cpu_us_per_event": 80.90250590002432,
-        "spawn_s": 2.152622102999885,
+        "coordinator_cpu_s": 2.5383670129999985,
+        "worker_cpu_s": 29.751012179999996,
+        "total_cpu_us_per_event": 107.54057142809563,
+        "spawn_s": 1.6559576869985904,
         "barriers": 1,
         "shard_balance": {
           "min": 36853,
@@ -160,33 +159,33 @@
           "max_over_mean": 1.0282261959081176
         }
       },
-      "single_core_line_path_events_per_s_cpu": 20145.13662047906
+      "single_core_line_path_events_per_s_cpu": 16838.56277864854
     },
     {
       "lines": 100000,
       "simulated_seconds": 60.0,
       "events": 299816,
       "events_per_line": 2.99816,
-      "generation_s": 4.259029857999849,
+      "generation_s": 4.156290954000724,
       "required_events_per_s": 5000.0,
       "duration_note": "event budget 300,000: 60 s of simulated traffic (3.00 events per line)",
       "ingest": {
         "events": 299816,
         "accepted": 299816,
         "quarantined": 0,
-        "wall_s": 14.09996987699924,
-        "cpu_s": 13.907740786999994,
-        "events_per_s_wall": 21263.59152646693,
-        "events_per_s_cpu": 21557.49122677405,
-        "cpu_us_per_event": 46.3875870100328,
+        "wall_s": 16.783525926999573,
+        "cpu_s": 16.593717159,
+        "events_per_s_wall": 17863.707620440324,
+        "events_per_s_cpu": 18068.043291758026,
+        "cpu_us_per_event": 55.34633628292019,
         "batch_records": 1000,
         "batch_latency_ms": {
-          "p50": 39.400953999574995,
-          "p95": 57.4145620012132,
-          "p99": 382.19450199903804,
-          "p99.9": 638.004642500535,
-          "max": 687.4079000008351,
-          "mean": 46.84056615626582
+          "p50": 44.2970099975355,
+          "p95": 63.64074900193373,
+          "p99": 419.650798998191,
+          "p99.9": 1005.7809990001442,
+          "max": 1125.535437000508,
+          "mean": 55.754636265832524
         },
         "bytes_per_event": {
           "netflow_csv": 109.2936725791801,
@@ -196,51 +195,51 @@
       },
       "windows": {
         "events": 299816,
-        "wall_s": 8.155970900003013,
-        "cpu_s": 8.097232558999998,
-        "events_per_s_wall": 36760.307715159855,
-        "events_per_s_cpu": 37026.971599915,
-        "cpu_us_per_event": 27.007339698348314,
+        "wall_s": 7.985770629995386,
+        "cpu_s": 7.876030952000008,
+        "events_per_s_wall": 37543.778038635355,
+        "events_per_s_cpu": 38066.88950655608,
+        "cpu_us_per_event": 26.269548496411158,
         "update_latency_us": {
-          "p50": 8.143,
-          "p95": 13.742,
-          "p99": 39.58269999999995,
-          "p99.9": 260.6121200000085,
-          "max": 1559150.094,
-          "mean": 26.572726679029802
+          "p50": 16.05,
+          "p95": 28.947499999999998,
+          "p99": 58.490349999999744,
+          "p99.9": 261.9265000000056,
+          "max": 1078741.534,
+          "mean": 26.12941891693572
         },
         "active_lines": 95012,
         "window_close": {
           "feature_vectors": 95012,
-          "wall_s": 7.748744550997799,
-          "cpu_s": 7.663161181999996,
-          "cpu_us_per_vector": 80.6546665894834
+          "wall_s": 21.122797601005004,
+          "cpu_s": 20.920470038000005,
+          "cpu_us_per_vector": 220.1876609059909
         },
-        "state_rss_mb": 359.661568
+        "state_rss_mb": 166.191104
       },
       "scoring": {
         "feature_vectors_scored": 20000,
         "feature_vectors_available": 95012,
-        "wall_s": 4.272244630999921,
-        "cpu_s": 4.219751908000006,
-        "vectors_per_s_wall": 4681.379866423751,
-        "cpu_us_per_vector": 210.98759540000032,
+        "wall_s": 8.36707395799749,
+        "cpu_s": 8.311364319999996,
+        "vectors_per_s_wall": 2390.321885571888,
+        "cpu_us_per_vector": 415.5682159999998,
         "batch_vectors": 1000,
         "batch_latency_ms": {
-          "p50": 216.42257849998714,
-          "p95": 269.1040300003806,
-          "p99": 285.5190116015001,
-          "p99.9": 289.21238246175204,
-          "max": 289.62275700178,
-          "mean": 213.60763519987813
+          "p50": 419.98062649872736,
+          "p95": 503.5852491513652,
+          "p99": 559.8354962294978,
+          "p99.9": 572.491801822078,
+          "max": 573.8980579990312,
+          "mean": 418.34918900021876
         },
         "model_id": "sentinel-lgbm-b22cba443410719c",
         "close_score_emit": {
           "lines": 20000,
           "findings": 3195,
-          "wall_s": 8.271102712002175,
-          "cpu_s": 8.179673366999992,
-          "cpu_us_per_vector": 408.9836683499996,
+          "wall_s": 19.219182876004197,
+          "cpu_s": 19.013472111000013,
+          "cpu_us_per_vector": 950.6736055500006,
           "findings_per_vector": 0.15975
         },
         "note": "scored a sample of 20000 of 95012 vectors; per-vector cost is independent of the sample size"
@@ -251,15 +250,15 @@
         "shards": 8,
         "events": 299816,
         "published": 299816,
-        "ingest_wall_s": 10.1866714530006,
-        "events_per_s_wall": 29432.18512379584,
-        "close_wall_s": 15.326461585998914,
+        "ingest_wall_s": 8.622423274995526,
+        "events_per_s_wall": 34771.66342198105,
+        "close_wall_s": 20.26284963299986,
         "feature_vectors": 95012,
         "findings": 13334,
-        "coordinator_cpu_s": 3.7490346529999954,
-        "worker_cpu_s": 68.501982025,
-        "total_cpu_us_per_event": 240.9845261026763,
-        "spawn_s": 2.240694934000203,
+        "coordinator_cpu_s": 3.6143761209999923,
+        "worker_cpu_s": 99.307341526,
+        "total_cpu_us_per_event": 343.2829390259359,
+        "spawn_s": 1.6588328430007095,
         "barriers": 1,
         "shard_balance": {
           "min": 36830,
@@ -267,33 +266,33 @@
           "max_over_mean": 1.0122741948395015
         }
       },
-      "single_core_line_path_events_per_s_cpu": 13624.919934497433
+      "single_core_line_path_events_per_s_cpu": 12252.51680728263
     },
     {
       "lines": 1000000,
       "simulated_seconds": 6.0,
       "events": 299373,
       "events_per_line": 0.299373,
-      "generation_s": 7.822703009998804,
+      "generation_s": 9.061736875999486,
       "required_events_per_s": 50000.0,
       "duration_note": "event budget 300,000: 6 s of simulated traffic (0.30 events per line)",
       "ingest": {
         "events": 299373,
         "accepted": 299373,
         "quarantined": 0,
-        "wall_s": 16.728004821001377,
-        "cpu_s": 16.534695487999997,
-        "events_per_s_wall": 17896.515645676318,
-        "events_per_s_cpu": 18105.74619999921,
-        "cpu_us_per_event": 55.231084593467,
+        "wall_s": 17.583542940999905,
+        "cpu_s": 17.37944350699999,
+        "events_per_s_wall": 17025.749645820575,
+        "events_per_s_cpu": 17225.69539579448,
+        "cpu_us_per_event": 58.05280872690587,
         "batch_records": 1000,
         "batch_latency_ms": {
-          "p50": 47.012101000291295,
-          "p95": 66.80740999945556,
-          "p99": 352.0219130004989,
-          "p99.9": 668.2114487008259,
-          "max": 693.5421710004448,
-          "mean": 55.571450551379954
+          "p50": 47.62511699664174,
+          "p95": 71.60610600112705,
+          "p99": 396.7010609994759,
+          "p99.9": 741.421093402462,
+          "max": 758.2276340035605,
+          "mean": 58.412862408906605
         },
         "bytes_per_event": {
           "netflow_csv": 109.75799077591701,
@@ -303,51 +302,51 @@
       },
       "windows": {
         "events": 299373,
-        "wall_s": 11.373849879000772,
-        "cpu_s": 11.244060233999988,
-        "events_per_s_wall": 26321.166815532193,
-        "events_per_s_cpu": 26624.990774662576,
-        "cpu_us_per_event": 37.5586984597809,
+        "wall_s": 10.199090699999942,
+        "cpu_s": 10.05013450300001,
+        "events_per_s_wall": 29352.910843316815,
+        "events_per_s_cpu": 29787.959545281294,
+        "cpu_us_per_event": 33.57061092015649,
         "update_latency_us": {
-          "p50": 7.467,
-          "p95": 13.657,
-          "p99": 57.30587999999785,
-          "p99.9": 283.17748400006394,
-          "max": 1879700.081,
-          "mean": 34.648051313912745
+          "p50": 13.505,
+          "p95": 30.928399999999964,
+          "p99": 74.15583999999991,
+          "p99.9": 239.0668360000127,
+          "max": 1367593.993,
+          "mean": 33.59049846846576
         },
         "active_lines": 258362,
         "window_close": {
           "feature_vectors": 258362,
-          "wall_s": 18.871736960001726,
-          "cpu_s": 18.66515569400002,
-          "cpu_us_per_vector": 72.24419881406716
+          "wall_s": 41.57001916899753,
+          "cpu_s": 41.104690688999995,
+          "cpu_us_per_vector": 159.0972770337743
         },
-        "state_rss_mb": 757.280768
+        "state_rss_mb": 424.112128
       },
       "scoring": {
         "feature_vectors_scored": 20000,
         "feature_vectors_available": 258362,
-        "wall_s": 3.980899367001257,
-        "cpu_s": 3.9478160079999896,
-        "vectors_per_s_wall": 5023.990348961183,
-        "cpu_us_per_vector": 197.39080039999948,
+        "wall_s": 7.623758697001904,
+        "cpu_s": 7.562128612000009,
+        "vectors_per_s_wall": 2623.3778894215448,
+        "cpu_us_per_vector": 378.10643060000046,
         "batch_vectors": 1000,
         "batch_latency_ms": {
-          "p50": 199.38369100054842,
-          "p95": 233.98056049882143,
-          "p99": 240.53648009976314,
-          "p99.9": 242.01156200997502,
-          "max": 242.17545999999857,
-          "mean": 199.04066100043565
+          "p50": 358.3611979993293,
+          "p95": 493.5908480536455,
+          "p99": 552.0633792095031,
+          "p99.9": 565.2196987195713,
+          "max": 566.6815119984676,
+          "mean": 381.1823182491935
         },
         "model_id": "sentinel-lgbm-b22cba443410719c",
         "close_score_emit": {
           "lines": 20000,
           "findings": 753,
-          "wall_s": 6.204520793999109,
-          "cpu_s": 6.124753787000003,
-          "cpu_us_per_vector": 306.23768935000015,
+          "wall_s": 11.77737727099884,
+          "cpu_s": 11.697093633999998,
+          "cpu_us_per_vector": 584.8546816999999,
           "findings_per_vector": 0.03765
         },
         "note": "scored a sample of 20000 of 258362 vectors; per-vector cost is independent of the sample size"
@@ -358,15 +357,15 @@
         "shards": 8,
         "events": 299373,
         "published": 299373,
-        "ingest_wall_s": 13.040150496999559,
-        "events_per_s_wall": 22957.787187263177,
-        "close_wall_s": 33.51192731999981,
+        "ingest_wall_s": 10.150088871996559,
+        "events_per_s_wall": 29494.61859648843,
+        "close_wall_s": 41.88309887799551,
         "feature_vectors": 258362,
         "findings": 5845,
-        "coordinator_cpu_s": 5.078182517999977,
-        "worker_cpu_s": 123.821317759,
-        "total_cpu_us_per_event": 430.564881525722,
-        "spawn_s": 1.917502128999331,
+        "coordinator_cpu_s": 5.373274752999976,
+        "worker_cpu_s": 187.06550237800002,
+        "total_cpu_us_per_event": 642.8060550918085,
+        "spawn_s": 1.7470799830043688,
         "barriers": 1,
         "shard_balance": {
           "min": 36917,
@@ -374,60 +373,276 @@
           "max_over_mean": 1.008454336229386
         }
       },
-      "single_core_line_path_events_per_s_cpu": 10777.0485833138
+      "single_core_line_path_events_per_s_cpu": 10914.240091147505
     }
   ],
   "window_memory": {
-    "lines": 300,
-    "simulated_hours": 6.0,
-    "buffered_events": 324108,
-    "measured": {
-      "max_source_event_ids=10000": {
-        "bytes_per_buffered_event": 385.691880484283,
-        "bytes_per_line": 416686.08
+    "lines": 500,
+    "simulated_hours": 25,
+    "events": 2249925,
+    "events_per_line_hour": 180.0,
+    "series": [
+      {
+        "hour": 1,
+        "accounted_bytes_per_line": 8787.568,
+        "packed_bytes_per_line": 0.0,
+        "line_overhead_bytes_per_line": 8787.568,
+        "vocab_bytes": 5016301,
+        "vocab_keys": 33630
       },
-      "max_source_event_ids=0": {
-        "bytes_per_buffered_event": 363.10819850173397,
-        "bytes_per_line": 392287.5733333333
+      {
+        "hour": 2,
+        "accounted_bytes_per_line": 12383.56,
+        "packed_bytes_per_line": 2602.536,
+        "line_overhead_bytes_per_line": 9781.024,
+        "vocab_bytes": 7899403,
+        "vocab_keys": 52973
+      },
+      {
+        "hour": 3,
+        "accounted_bytes_per_line": 15016.496,
+        "packed_bytes_per_line": 4991.216,
+        "line_overhead_bytes_per_line": 10025.28,
+        "vocab_bytes": 10227111,
+        "vocab_keys": 67446
+      },
+      {
+        "hour": 4,
+        "accounted_bytes_per_line": 17654.88,
+        "packed_bytes_per_line": 7370.016,
+        "line_overhead_bytes_per_line": 10284.864,
+        "vocab_bytes": 11547851,
+        "vocab_keys": 79165
+      },
+      {
+        "hour": 5,
+        "accounted_bytes_per_line": 20347.304,
+        "packed_bytes_per_line": 9753.224,
+        "line_overhead_bytes_per_line": 10594.08,
+        "vocab_bytes": 12735995,
+        "vocab_keys": 89051
+      },
+      {
+        "hour": 6,
+        "accounted_bytes_per_line": 23171.144,
+        "packed_bytes_per_line": 12130.904,
+        "line_overhead_bytes_per_line": 11040.24,
+        "vocab_bytes": 14899829,
+        "vocab_keys": 97700
+      },
+      {
+        "hour": 7,
+        "accounted_bytes_per_line": 25808.504,
+        "packed_bytes_per_line": 14514.744,
+        "line_overhead_bytes_per_line": 11293.76,
+        "vocab_bytes": 15856171,
+        "vocab_keys": 105482
+      },
+      {
+        "hour": 8,
+        "accounted_bytes_per_line": 28396.648,
+        "packed_bytes_per_line": 16910.872,
+        "line_overhead_bytes_per_line": 11485.776,
+        "vocab_bytes": 16499796,
+        "vocab_keys": 112245
+      },
+      {
+        "hour": 9,
+        "accounted_bytes_per_line": 31207.576,
+        "packed_bytes_per_line": 19285.608,
+        "line_overhead_bytes_per_line": 11921.968,
+        "vocab_bytes": 17258688,
+        "vocab_keys": 118636
+      },
+      {
+        "hour": 10,
+        "accounted_bytes_per_line": 33864.296,
+        "packed_bytes_per_line": 21662.856,
+        "line_overhead_bytes_per_line": 12201.44,
+        "vocab_bytes": 18355903,
+        "vocab_keys": 124342
+      },
+      {
+        "hour": 11,
+        "accounted_bytes_per_line": 36769.736,
+        "packed_bytes_per_line": 24048.728,
+        "line_overhead_bytes_per_line": 12721.008,
+        "vocab_bytes": 19025553,
+        "vocab_keys": 129650
+      },
+      {
+        "hour": 12,
+        "accounted_bytes_per_line": 39408.008,
+        "packed_bytes_per_line": 26428.536,
+        "line_overhead_bytes_per_line": 12979.472,
+        "vocab_bytes": 19564604,
+        "vocab_keys": 134396
+      },
+      {
+        "hour": 13,
+        "accounted_bytes_per_line": 42091.088,
+        "packed_bytes_per_line": 28805.136,
+        "line_overhead_bytes_per_line": 13285.952,
+        "vocab_bytes": 19997466,
+        "vocab_keys": 139002
+      },
+      {
+        "hour": 14,
+        "accounted_bytes_per_line": 44704.632,
+        "packed_bytes_per_line": 31184.056,
+        "line_overhead_bytes_per_line": 13520.576,
+        "vocab_bytes": 20447657,
+        "vocab_keys": 143231
+      },
+      {
+        "hour": 15,
+        "accounted_bytes_per_line": 47379.408,
+        "packed_bytes_per_line": 33553.408,
+        "line_overhead_bytes_per_line": 13826.0,
+        "vocab_bytes": 22007313,
+        "vocab_keys": 147267
+      },
+      {
+        "hour": 16,
+        "accounted_bytes_per_line": 50012.216,
+        "packed_bytes_per_line": 35941.48,
+        "line_overhead_bytes_per_line": 14070.736,
+        "vocab_bytes": 22305436,
+        "vocab_keys": 151135
+      },
+      {
+        "hour": 17,
+        "accounted_bytes_per_line": 52810.584,
+        "packed_bytes_per_line": 38323.384,
+        "line_overhead_bytes_per_line": 14487.2,
+        "vocab_bytes": 22850344,
+        "vocab_keys": 154711
+      },
+      {
+        "hour": 18,
+        "accounted_bytes_per_line": 55464.384,
+        "packed_bytes_per_line": 40705.744,
+        "line_overhead_bytes_per_line": 14758.64,
+        "vocab_bytes": 23084343,
+        "vocab_keys": 158055
+      },
+      {
+        "hour": 19,
+        "accounted_bytes_per_line": 58077.128,
+        "packed_bytes_per_line": 43092.264,
+        "line_overhead_bytes_per_line": 14984.864,
+        "vocab_bytes": 23496382,
+        "vocab_keys": 161339
+      },
+      {
+        "hour": 20,
+        "accounted_bytes_per_line": 60753.368,
+        "packed_bytes_per_line": 45469.128,
+        "line_overhead_bytes_per_line": 15284.24,
+        "vocab_bytes": 23788519,
+        "vocab_keys": 164381
+      },
+      {
+        "hour": 21,
+        "accounted_bytes_per_line": 63388.192,
+        "packed_bytes_per_line": 47855.936,
+        "line_overhead_bytes_per_line": 15532.256,
+        "vocab_bytes": 26782528,
+        "vocab_keys": 167365
+      },
+      {
+        "hour": 22,
+        "accounted_bytes_per_line": 66588.616,
+        "packed_bytes_per_line": 50227.032,
+        "line_overhead_bytes_per_line": 16361.584,
+        "vocab_bytes": 27226730,
+        "vocab_keys": 170232
+      },
+      {
+        "hour": 23,
+        "accounted_bytes_per_line": 69232.808,
+        "packed_bytes_per_line": 52611.256,
+        "line_overhead_bytes_per_line": 16621.552,
+        "vocab_bytes": 27421455,
+        "vocab_keys": 173012
+      },
+      {
+        "hour": 24,
+        "accounted_bytes_per_line": 71904.328,
+        "packed_bytes_per_line": 54991.88,
+        "line_overhead_bytes_per_line": 16912.448,
+        "vocab_bytes": 27610756,
+        "vocab_keys": 175701
+      },
+      {
+        "hour": 25,
+        "accounted_bytes_per_line": 74678.504,
+        "packed_bytes_per_line": 57381.528,
+        "line_overhead_bytes_per_line": 17296.976,
+        "vocab_bytes": 28045439,
+        "vocab_keys": 178210
       }
+    ],
+    "bytes_per_line_24h_window": 118507.4692173913,
+    "marginal_vocab_bytes_per_line": 43828.965217391305,
+    "vocab_fixed_bytes_estimate": 6130956.391304348,
+    "accounted_bytes_per_line": 74678.504,
+    "packed_bytes_per_line": 57381.528,
+    "line_overhead_bytes_per_line": 17296.976,
+    "vocab_bytes": 28045439,
+    "vocab_keys": 178210,
+    "vocab_bytes_per_line_here": 56090.878,
+    "growth_after_full_window": 0.03858148844670395,
+    "bound_bytes_per_line": 256000,
+    "limits": {
+      "flow_events_per_bin": 512,
+      "dns_events_per_bin": 256,
+      "answers_per_bin": 256
     },
-    "bytes_per_line_24h_window": 1666188.9236921025,
-    "method": "RSS growth of one WindowStore holding 6 h of history for 300 lines, divided by buffered events; a 24 h window buffers 24 h of events per line, so bytes/line = bytes/event x 180 x 24 (extrapolated in time, linear: the store keeps per-event timestamps for periodicity)"
+    "sampled_bins": 0,
+    "cpu_s_incl_ingest": 164.381828331,
+    "live_heap_check": {
+      "lines": 40,
+      "live_bytes": 10961562,
+      "accounted_bytes": 10865779,
+      "accounted_over_live": 0.9912619205182619
+    },
+    "method": "store accounting (numpy record arrays + per-line Python objects, sys.getsizeof) after 25 h of traffic for 500 lines (180 events per line-hour), per line, plus the marginal growth of the shared tenant vocabularies per added line (from a second 40-line run, which also checks the accounting against the live heap under tracemalloc): measured with a full 24 h window plus the closed hop, not extrapolated"
   },
   "paced": [
     {
       "offered_fraction_of_capacity": 0.5,
-      "offered_events_per_s": 10072.56831023953,
-      "events": 151088,
-      "elapsed_s": 14.999926880998828,
-      "achieved_events_per_s": 10072.58243314445,
-      "final_lag_s": -2.1031631119328154e-05,
+      "offered_events_per_s": 8419.28138932427,
+      "events": 126289,
+      "elapsed_s": 15.000118547002785,
+      "achieved_events_per_s": 8419.200128603927,
+      "final_lag_s": 0.00014477725378014838,
       "kept_up": true,
       "latency_ms": {
-        "p50": 0.15776683865775798,
-        "p95": 0.4472586099145912,
-        "p99": 0.8301879771618746,
-        "p99.9": 3.9811432120197376,
-        "max": 21.793990847292832,
-        "mean": 0.22046009203810024
+        "p50": 0.17704470719870358,
+        "p95": 0.5066531709568166,
+        "p99": 1.4337585334150325,
+        "p99.9": 7.582674260001264,
+        "max": 26.687429965260414,
+        "mean": 0.26652922110287036
       },
       "stage": "ingest+validate+feature windows (NetFlow only), single process"
     },
     {
       "offered_fraction_of_capacity": 0.9,
-      "offered_events_per_s": 18130.622958431155,
-      "events": 271959,
-      "elapsed_s": 15.424182265996933,
-      "achieved_events_per_s": 17631.98821888546,
-      "final_lag_s": 0.4242012601852796,
+      "offered_events_per_s": 15154.706500783685,
+      "events": 227320,
+      "elapsed_s": 15.000027032998332,
+      "achieved_events_per_s": 15154.639354977306,
+      "final_lag_s": 6.646046960945284e-05,
       "kept_up": true,
       "latency_ms": {
-        "p50": 0.17333970257737974,
-        "p95": 0.7426097657377889,
-        "p99": 4.004285181203894,
-        "p99.9": 275.84129459781786,
-        "max": 1046.145959313428,
-        "mean": 0.9934398870999933
+        "p50": 0.16807076566927037,
+        "p95": 0.6507875373942262,
+        "p99": 4.195516922018955,
+        "p99.9": 90.89095092851547,
+        "max": 271.61766464860017,
+        "mean": 0.4979809588019116
       },
       "stage": "ingest+validate+feature windows (NetFlow only), single process"
     }
@@ -438,107 +653,131 @@
         "lines": 1000,
         "events": 555127,
         "events_per_line_day": 555.127,
-        "table_build_s": 0.15927045799980988,
-        "detect_wall_s": 3.3099817270012863,
-        "cpu_s": 3.4144257149999997,
-        "peak_rss_mb": 596.25472,
-        "peak_rss_growth_mb": 424.300544,
+        "table_build_s": 0.17108572500001173,
+        "detect_wall_s": 2.027165225998033,
+        "cpu_s": 2.200785339,
+        "peak_rss_mb": 415.141888,
+        "peak_rss_growth_mb": 243.11808,
         "memory_note": "includes the simulated input frames (the job's input)",
         "campaigns": 8,
         "tested": 141,
         "timings_s": {
-          "stats": 0.0932,
-          "population": 0.0328,
-          "periodograms": 1.9158,
-          "permutation": 1.2215,
-          "total": 3.3022
+          "stats": 0.0943,
+          "population": 0.0327,
+          "periodograms": 0.6332,
+          "permutation": 1.2262,
+          "total": 2.0228
         }
       },
       {
         "lines": 2500,
         "events": 1341599,
         "events_per_line_day": 536.6396,
-        "table_build_s": 0.3818962669975008,
-        "detect_wall_s": 9.598715207001078,
-        "cpu_s": 9.896733006,
-        "peak_rss_mb": 1155.387392,
-        "peak_rss_growth_mb": 983.437312,
+        "table_build_s": 0.43889576999936253,
+        "detect_wall_s": 6.616954965000332,
+        "cpu_s": 7.032585865,
+        "peak_rss_mb": 698.896384,
+        "peak_rss_growth_mb": 526.753792,
         "memory_note": "includes the simulated input frames (the job's input)",
         "campaigns": 11,
         "tested": 246,
         "timings_s": {
-          "stats": 0.2938,
-          "population": 0.0647,
-          "periodograms": 5.0468,
-          "permutation": 4.0796,
-          "total": 9.5867
+          "stats": 0.3163,
+          "population": 0.0734,
+          "periodograms": 1.7695,
+          "permutation": 4.3634,
+          "total": 6.611
         }
       },
       {
         "lines": 5000,
         "events": 2715454,
         "events_per_line_day": 543.0908,
-        "table_build_s": 0.8887411120012985,
-        "detect_wall_s": 19.921506007998687,
-        "cpu_s": 20.740095513,
-        "peak_rss_mb": 2020.74112,
-        "peak_rss_growth_mb": 1848.721408,
+        "table_build_s": 1.3577037430004566,
+        "detect_wall_s": 13.747524045000318,
+        "cpu_s": 15.065577656,
+        "peak_rss_mb": 1026.809856,
+        "peak_rss_growth_mb": 854.577152,
         "memory_note": "includes the simulated input frames (the job's input)",
         "campaigns": 11,
         "tested": 340,
         "timings_s": {
-          "stats": 0.651,
-          "population": 0.1279,
-          "periodograms": 10.2958,
-          "permutation": 8.6539,
-          "total": 19.907
+          "stats": 0.6895,
+          "population": 0.1205,
+          "periodograms": 3.7109,
+          "permutation": 9.0149,
+          "total": 13.7401
         }
       },
       {
         "lines": 10000,
         "events": 5355939,
         "events_per_line_day": 535.5939,
-        "table_build_s": 2.829919615000108,
-        "detect_wall_s": 38.99931189799827,
-        "cpu_s": 41.659203065,
-        "peak_rss_mb": 3993.276416,
-        "peak_rss_growth_mb": 3821.268992,
+        "table_build_s": 4.4141322699942975,
+        "detect_wall_s": 28.786716768001497,
+        "cpu_s": 33.244145124,
+        "peak_rss_mb": 1865.854976,
+        "peak_rss_growth_mb": 1693.822976,
         "memory_note": "includes the simulated input frames (the job's input)",
         "campaigns": 12,
         "tested": 397,
         "timings_s": {
-          "stats": 1.5536,
-          "population": 0.2304,
-          "periodograms": 18.135,
-          "permutation": 18.729,
-          "total": 38.9607
+          "stats": 1.6835,
+          "population": 0.2415,
+          "periodograms": 9.3141,
+          "permutation": 17.1151,
+          "total": 28.7779
         }
       }
     ],
     "cpu_power_law": {
-      "exponent": 1.0872102712698246,
-      "coef": 0.0019264443516782172
+      "exponent": 1.1745768580332006,
+      "coef": 0.0006805692986578847
+    },
+    "subpopulation_bound": {
+      "lines_per_run": 10000,
+      "peak_memory_gb_per_run": 1.6938229759999999,
+      "cpu_s_per_run": 33.244145124,
+      "basis": "measured (largest run)",
+      "at_scale": {
+        "10000": {
+          "runs": 1,
+          "cpu_s_per_hour": 33.244145124,
+          "cores_to_finish_within_the_hour": 0.009234484756666666
+        },
+        "100000": {
+          "runs": 10,
+          "cpu_s_per_hour": 332.44145124,
+          "cores_to_finish_within_the_hour": 0.09234484756666667
+        },
+        "1000000": {
+          "runs": 100,
+          "cpu_s_per_hour": 3324.4145123999997,
+          "cores_to_finish_within_the_hour": 0.9234484756666665
+        }
+      },
+      "note": "per-run bound when the tenant is split into independent sub-populations of at most this many lines (region / BNG / CGNAT pool; a product decision, see aegis/scale/INTEGRATION.md): peak RAM is that of one run, whatever the tenant size; runs execute one after another or in parallel"
     },
     "memory_power_law": {
-      "exponent": 0.9490091598403635,
-      "coef_mb": 0.59272146572127
+      "exponent": 0.8291535880132991,
+      "coef_mb": 0.7850280536887665
     },
     "projections": {
       "10000": {
-        "cpu_s_per_hourly_run": 41.659203065,
-        "peak_memory_gb": 3.821268992,
+        "cpu_s_per_hourly_run": 33.244145124,
+        "peak_memory_gb": 1.6938229759999999,
         "basis": "measured",
         "fits_in_one_hour_on_one_core": true
       },
       "100000": {
-        "cpu_s_per_hourly_run": 525.7845551451072,
-        "peak_memory_gb": 32.95311355574628,
+        "cpu_s_per_hourly_run": 507.87477600791766,
+        "peak_memory_gb": 10.981283835690405,
         "basis": "extrapolated (power law fitted on 4 measured line counts [1000, 2500, 5000, 10000])",
         "fits_in_one_hour_on_one_core": true
       },
       "1000000": {
-        "cpu_s_per_hourly_run": 6427.144969420715,
-        "peak_memory_gb": 293.0256343365613,
+        "cpu_s_per_hourly_run": 7591.603228634087,
+        "peak_memory_gb": 74.0980373713304,
         "basis": "extrapolated (power law fitted on 4 measured line counts [1000, 2500, 5000, 10000])",
         "fits_in_one_hour_on_one_core": false
       }
@@ -548,16 +787,16 @@
   "resonance_prep": {
     "lines": 10000,
     "events": 5355939,
-    "single_wall_s": 4.296278322999569,
-    "single_cpu_s": 4.257544231000001,
-    "sharded_wall_s": 6.429810126999655,
-    "sharded_total_cpu_s": 10.642374345999999,
+    "single_wall_s": 4.36523899200256,
+    "single_cpu_s": 4.348831737999944,
+    "sharded_wall_s": 6.334027481003432,
+    "sharded_total_cpu_s": 13.46411801400005,
     "workers": 4,
     "active_lines": 10000,
     "destination_keys": 673,
     "note": "stages 1-2 only (DNS join, destination population statistics); detection runs once on the coordinator (see aegis/scale/population.py for why it does not shard by destination)"
   },
-  "runtime_s": 119.65143560999786,
+  "runtime_s": 727.4931577440002,
   "cost": {
     "prices": {
       "eur_per_vcpu_hour": 0.04,
@@ -572,72 +811,214 @@
     "assumptions": [
       "120 flow records + 60 DNS queries per line-hour (configurable; sampled NetFlow at 1:1000 would be far lower)",
       "CPU = measured CPU seconds per event (process_time, robust to other load on the host) divided by target utilization 0.6",
-      "window RAM per line = measured bytes per buffered event x 24 h of events (see memory section)",
+      "window RAM per line = measured state of a full 24 h window per line plus the marginal growth of the shared vocabularies per line; the fixed vocabulary part is added once to the totals (see memory section)",
       "RESONANCE CPU/RAM per hourly run from measured runs (10k) and a fitted power law beyond",
       "raw collector files retained 30 days",
       "no evidence/ledger storage, network egress, or operations staff in this model"
     ],
     "scales": {
       "10000": {
-        "cpu_us_per_event_line_path": 51.66965716847569,
-        "cpu_us_per_event_resonance": 23.144001702777775,
-        "eur_per_million_events": 0.0013854381272454346,
+        "cpu_us_per_event_line_path": 64.54084781180757,
+        "cpu_us_per_event_resonance": 18.46896951333333,
+        "eur_per_million_events": 0.0015372188393544609,
         "eur_per_line_month": {
-          "cpu": 0.00018204656992005012,
-          "window_ram": 0.004165472309230256,
-          "resonance_ram": 0.000955317248,
+          "cpu": 0.00020199055549117618,
+          "window_ram": 0.0002962686730434783,
+          "resonance_ram": 0.000423455744,
           "raw_storage": 0.0018397959085494154,
-          "total": 0.007142632035699721
+          "total": 0.00276151088108407
         },
         "required_events_per_s": 500.0,
-        "vcpus_needed": 0.06234471572604455,
-        "window_ram_gb_total": 16.661889236921024,
-        "resonance_peak_ram_gb": 3.821268992,
+        "vcpus_needed": 0.06917484777095076,
+        "window_ram_gb_total": 1.1912056485652174,
+        "resonance_peak_ram_gb": 1.6938229759999999,
         "resonance_basis": "measured"
       },
       "100000": {
-        "cpu_us_per_event_line_path": 75.66705819921445,
-        "cpu_us_per_event_resonance": 29.210253063617067,
-        "eur_per_million_events": 0.0019421724307931763,
+        "cpu_us_per_event_line_path": 86.89740481016469,
+        "cpu_us_per_event_resonance": 28.215265333773203,
+        "eur_per_million_events": 0.0021317161137766275,
         "eur_per_line_month": {
-          "cpu": 0.0002552014574062234,
-          "window_ram": 0.004165472309230256,
-          "resonance_ram": 0.0008238278388936569,
+          "cpu": 0.0002801074973502489,
+          "window_ram": 0.0002962686730434783,
+          "resonance_ram": 0.00027453209589226014,
           "raw_storage": 0.001849025278882607,
-          "total": 0.007093526884412743
+          "total": 0.002699933545168594
         },
         "required_events_per_s": 5000.0,
-        "vcpus_needed": 0.8739775938569293,
-        "window_ram_gb_total": 166.61889236921024,
-        "resonance_peak_ram_gb": 32.95311355574628,
+        "vcpus_needed": 0.9592722511994825,
+        "window_ram_gb_total": 11.856877878130435,
+        "resonance_peak_ram_gb": 10.981283835690405,
         "resonance_basis": "extrapolated (power law fitted on 4 measured line counts [1000, 2500, 5000, 10000])"
       },
       "1000000": {
-        "cpu_us_per_event_line_path": 94.49110354963679,
-        "cpu_us_per_event_resonance": 35.706360941226194,
-        "eur_per_million_events": 0.0024110641572382034,
+        "cpu_us_per_event_line_path": 94.87261232317347,
+        "cpu_us_per_event_resonance": 42.175573492411594,
+        "eur_per_million_events": 0.002537929366955279,
         "eur_per_line_month": {
-          "cpu": 0.0003168138302611,
-          "window_ram": 0.004165472309230256,
-          "resonance_ram": 0.0007325640858414033,
+          "cpu": 0.00033348391881792363,
+          "window_ram": 0.0002962686730434783,
+          "resonance_ram": 0.000185245093428326,
           "raw_storage": 0.0018550919200456828,
-          "total": 0.007069942145378442
+          "total": 0.0026700896053354108
         },
         "required_events_per_s": 50000.0,
-        "vcpus_needed": 10.849788707571916,
-        "window_ram_gb_total": 1666.1889236921024,
-        "resonance_peak_ram_gb": 293.0256343365613,
+        "vcpus_needed": 11.420682151298756,
+        "window_ram_gb_total": 118.5136001737826,
+        "resonance_peak_ram_gb": 74.0980373713304,
         "resonance_basis": "extrapolated (power law fitted on 4 measured line counts [1000, 2500, 5000, 10000])"
       }
     }
   },
+  "comparison": {
+    "previous_generated_at": "2026-10-25T14:18:19+00:00",
+    "previous_window_method": "RSS growth of one WindowStore holding 6 h of history for 300 lines, divided by buffered events; a 24 h window buffers 24 h of events per line, so bytes/line = bytes/event x 180 x 24 (extrapolated in time, linear: the store keeps per-event timestamps for periodicity)",
+    "rows": [
+      [
+        "feature-window state per line (KB)",
+        1666.1889236921024,
+        118.5074692173913
+      ],
+      [
+        "RESONANCE measured at 1,000 lines: peak RAM growth (MB)",
+        424.300544,
+        243.11808
+      ],
+      [
+        "RESONANCE measured at 1,000 lines: CPU s",
+        3.4144257149999997,
+        2.200785339
+      ],
+      [
+        "RESONANCE measured at 2,500 lines: peak RAM growth (MB)",
+        983.437312,
+        526.753792
+      ],
+      [
+        "RESONANCE measured at 2,500 lines: CPU s",
+        9.896733006,
+        7.032585865
+      ],
+      [
+        "RESONANCE measured at 5,000 lines: peak RAM growth (MB)",
+        1848.721408,
+        854.577152
+      ],
+      [
+        "RESONANCE measured at 5,000 lines: CPU s",
+        20.740095513,
+        15.065577656
+      ],
+      [
+        "RESONANCE measured at 10,000 lines: peak RAM growth (MB)",
+        3821.268992,
+        1693.822976
+      ],
+      [
+        "RESONANCE measured at 10,000 lines: CPU s",
+        41.659203065,
+        33.244145124
+      ],
+      [
+        "10,000 lines: feature-window RAM total (GB)",
+        16.661889236921024,
+        1.1912056485652174
+      ],
+      [
+        "10,000 lines: RESONANCE peak RAM per hourly run (GB)",
+        3.821268992,
+        1.6938229759999999
+      ],
+      [
+        "10,000 lines: RESONANCE CPU s per hourly run",
+        41.659203065,
+        33.244145124
+      ],
+      [
+        "10,000 lines: \u20ac per line-month, window RAM",
+        0.004165472309230256,
+        0.0002962686730434783
+      ],
+      [
+        "10,000 lines: \u20ac per line-month, RESONANCE RAM",
+        0.000955317248,
+        0.000423455744
+      ],
+      [
+        "10,000 lines: \u20ac per line-month, total",
+        0.007142632035699721,
+        0.00276151088108407
+      ],
+      [
+        "100,000 lines: feature-window RAM total (GB)",
+        166.61889236921024,
+        11.856877878130435
+      ],
+      [
+        "100,000 lines: RESONANCE peak RAM per hourly run (GB)",
+        32.95311355574628,
+        10.981283835690405
+      ],
+      [
+        "100,000 lines: RESONANCE CPU s per hourly run",
+        525.7845551451072,
+        507.87477600791766
+      ],
+      [
+        "100,000 lines: \u20ac per line-month, window RAM",
+        0.004165472309230256,
+        0.0002962686730434783
+      ],
+      [
+        "100,000 lines: \u20ac per line-month, RESONANCE RAM",
+        0.0008238278388936569,
+        0.00027453209589226014
+      ],
+      [
+        "100,000 lines: \u20ac per line-month, total",
+        0.007093526884412743,
+        0.002699933545168594
+      ],
+      [
+        "1,000,000 lines: feature-window RAM total (GB)",
+        1666.1889236921024,
+        118.5136001737826
+      ],
+      [
+        "1,000,000 lines: RESONANCE peak RAM per hourly run (GB)",
+        293.0256343365613,
+        74.0980373713304
+      ],
+      [
+        "1,000,000 lines: RESONANCE CPU s per hourly run",
+        6427.144969420715,
+        7591.603228634087
+      ],
+      [
+        "1,000,000 lines: \u20ac per line-month, window RAM",
+        0.004165472309230256,
+        0.0002962686730434783
+      ],
+      [
+        "1,000,000 lines: \u20ac per line-month, RESONANCE RAM",
+        0.0007325640858414033,
+        0.000185245093428326
+      ],
+      [
+        "1,000,000 lines: \u20ac per line-month, total",
+        0.007069942145378442,
+        0.0026700896053354108
+      ]
+    ],
+    "note": "rows at line counts beyond the largest measured RESONANCE run are power-law extrapolations (their basis is stated in the RESONANCE section); the measured rows come first"
+  },
   "findings": [
-    "Single-core ingest+validate: 27,235 events per CPU-second at 10,000 lines; feature windows 77,383.",
-    "Sharded x4 (ingest + windows + SENTINEL, wall clock) vs one core doing ingest + windows (CPU time): 10,000 lines 1.82x, 100,000 lines 2.16x, 1,000,000 lines 2.13x (speed-up is limited by the single coordinator, which reads, identifies and routes every record, and by other processes sharing this host).",
-    "At 1,000,000 lines the configured traffic needs 50,000 events/s; one coordinator handled 22,958 events/s here, so a deployment at that size runs several coordinators fed by collector-side partitioning (Kafka partitions keyed with aegis.scale.kafka_partition_for_line).",
-    "Feature-window memory dominates at scale: about 1,666 KB per line for a 24 h window (1,666 GB at 1,000,000 lines). The store keeps per-event timestamps for periodicity features; bounding them (reservoirs) in aegis.sentinel.features is the main lever.",
-    "RESONANCE at 1,000,000 lines (extrapolated (power law fitted on 4 measured line counts [1000, 2500, 5000, 10000])): 6,427 CPU s and 293 GB per hourly run. Detection is not sharded by destination (the permutation null needs every destination of each line), so at this size the population must be split into independent sub-populations (e.g. per region / BNG), each tested on its own.",
-    "Sharded RESONANCE preparation (10,000 lines, 4 workers) took 6.4 s vs 4.3 s single-node: at this size shipping the frames to worker processes costs more than the join saves; it pays off only when the line shards already hold their data (Kafka / Kubernetes executors), not with the local executor.",
+    "Single-core ingest+validate: 23,367 events per CPU-second at 10,000 lines; feature windows 60,271.",
+    "Sharded x4 (ingest + windows + SENTINEL, wall clock) vs one core doing ingest + windows (CPU time): 10,000 lines 2.39x, 100,000 lines 2.84x, 1,000,000 lines 2.70x (speed-up is limited by the single coordinator, which reads, identifies and routes every record, and by other processes sharing this host).",
+    "At 1,000,000 lines the configured traffic needs 50,000 events/s; one coordinator handled 29,495 events/s here, so a deployment at that size runs several coordinators fed by collector-side partitioning (Kafka partitions keyed with aegis.scale.kafka_partition_for_line).",
+    "Feature-window state is bounded streaming state: 119 KB per line measured with a full 24 h window (119 GB at 1,000,000 lines, split over the line shards), flat once the window is full; whatever the event rate a line holds at most 256 KB of packed records (hops over the caps keep a coordinated sample, see aegis.sentinel.features).",
+    "RESONANCE at 1,000,000 lines on one population (extrapolated (power law fitted on 4 measured line counts [1000, 2500, 5000, 10000])): 7,592 CPU s and 74 GB per hourly run (detection does not shard by destination: the permutation null needs every destination of each line). Split into independent sub-populations of 10,000 lines (region / BNG; see aegis/scale/INTEGRATION.md), one run needs 1.7 GB and 33 CPU s, so 100 runs take 0.9 cores per hour with RAM bounded by the runs executing concurrently.",
+    "Sharded RESONANCE preparation (10,000 lines, 4 workers) took 6.3 s vs 4.4 s single-node: at this size shipping the frames to worker processes costs more than the join saves; it pays off only when the line shards already hold their data (Kafka / Kubernetes executors), not with the local executor.",
     "1M-line rows process the same event budget as smaller scales over a shorter simulated window; throughput and per-line state lookups are measured with 1M distinct lines, full-day quantities are extrapolated as stated."
   ]
 }

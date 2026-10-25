@@ -1,17 +1,20 @@
 """AEGIS load test: throughput, latency, memory and cost at 10k / 100k / 1M subscriber lines.
 
-    python -m eval.load.run_load --out eval/load/report            # full run (about 10 minutes, 4 cores)
-    python -m eval.load.run_load --out /tmp/load --quick        # smoke run (about 1 minute)
+    python -m eval.load.run_load --out eval/load/report            # full run (about 20 minutes, 4 cores)
+    python -m eval.load.run_load --out /tmp/load --quick        # smoke run (a few minutes)
 
 All traffic is SYNTHETIC (``eval.load.synth``; RESONANCE stages use ``aegis.resonance.sim``).
 Every stage is measured, never estimated, at the line count it names, with one exception
 that the report states in each row: each scale processes a fixed *event budget*, so the
 simulated duration shrinks as the line count grows (at 1M lines and the default budget,
-about 6 s of traffic, under one event per line). Quantities that need a full day of history
-(window memory per line, RESONANCE at 100k / 1M lines, the 24 h CPU bill) are extrapolated
-from measured per-unit costs, and the report says so next to every such number.
+about 6 s of traffic, under one event per line). Feature-window memory per line is measured
+with a full 24 h window (25 h of traffic, hour by hour). RESONANCE beyond the largest measured
+line count and the 24 h CPU bill are extrapolated from measured per-unit costs, and the report
+says so next to every such number.
 
-Outputs ``load_report.json`` and a self-contained ``load_report.html`` in ``--out``.
+Outputs ``load_report.json`` and a self-contained ``load_report.html`` in ``--out``; when
+``--out`` already holds a report (or ``--compare`` names one) a before / after table compares
+the headline memory and cost numbers with it.
 """
 from __future__ import annotations
 
@@ -25,7 +28,7 @@ import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -79,8 +82,8 @@ class LoadConfig:
     score_sample: int = 20_000
     resonance_lines: list[int] = field(default_factory=lambda: [1_000, 2_500, 5_000, 10_000])
     resonance_prep_lines: int = 10_000
-    memory_lines: int = 300
-    memory_hours: float = 6.0
+    memory_lines: int = 500
+    memory_hours: float = 25.0
     paced_seconds: float = 15.0
     paced_fractions: list[float] = field(default_factory=lambda: [0.5, 0.9])
     seed: int = 7
@@ -92,7 +95,7 @@ class LoadConfig:
 
 
 QUICK = dict(scales=[10_000, 100_000, 1_000_000], events_per_scale=30_000, score_sample=2_000,
-             resonance_lines=[500, 1_000], resonance_prep_lines=1_000, memory_lines=100, memory_hours=2.0,
+             resonance_lines=[500, 1_000], resonance_prep_lines=1_000, memory_lines=60, memory_hours=25.0,
              paced_seconds=4.0)
 
 
@@ -262,39 +265,112 @@ def stage_sharded(batch: SynthBatch, now: datetime, flush_at: datetime, workers:
     }
 
 
-def stage_window_memory(cfg: LoadConfig) -> dict[str, Any]:
-    """Steady-state window memory: bytes retained per buffered event, from a run with full history."""
-    from aegis.sentinel import WindowStore
-    spec = SynthSpec(n_lines=cfg.memory_lines, duration_s=cfg.memory_hours * 3600,
-                     flows_per_line_hour=cfg.flows_per_line_hour, dns_per_line_hour=cfg.dns_per_line_hour,
-                     seed=cfg.seed + 1)
-    batch = generate(spec)
-    now = hour_ceil(batch.t_max)
-    events: list[ObservationEvent] = []
-    pipe = make_pipeline(now, events.append)
-    pipe.ingest_text(batch.netflow_csv, "nf")
-    pipe.ingest_text(batch.dns_jsonl, "dns")
-    events.sort(key=lambda e: e.observed_at)
-    out = {}
-    for ids in (10_000, 0):
-        gc.collect()
-        r0 = rss_bytes()
-        ws = WindowStore("24h", max_source_event_ids=ids)
+def _feed_hours(ws: Any, lines: int, hours: int, cfg: LoadConfig, on_hour: Callable[[int], None]) -> int:
+    """Feed ``hours`` hours of synthetic traffic for ``lines`` lines into ``ws``, hour by hour
+    (each hour's NetFlow and DNS interleaved in time, through the production ingest path)."""
+    start = SynthSpec().start
+    n_events = 0
+    for h in range(hours):
+        spec = SynthSpec(n_lines=lines, duration_s=3600.0, start=start + timedelta(hours=h),
+                         flows_per_line_hour=cfg.flows_per_line_hour, dns_per_line_hour=cfg.dns_per_line_hour,
+                         seed=cfg.seed + 1)
+        batch = generate(spec, seed_offset=h)
+        events: list[ObservationEvent] = []
+        pipe = make_pipeline(start + timedelta(hours=h + 1), events.append)
+        pipe.ingest_text(batch.netflow_csv, "nf")
+        pipe.ingest_text(batch.dns_jsonl, "dns")
+        events.sort(key=lambda e: e.observed_at)
         for ev in events:
             ws.update(ev)
-        gc.collect()
-        delta = rss_bytes() - r0
-        out[f"max_source_event_ids={ids}"] = {"bytes_per_buffered_event": delta / len(events),
-                                              "bytes_per_line": delta / cfg.memory_lines}
-        del ws
-    per_event = out["max_source_event_ids=10000"]["bytes_per_buffered_event"]
-    per_line_24h = per_event * cfg.events_per_line_hour * 24
-    return {"lines": cfg.memory_lines, "simulated_hours": cfg.memory_hours, "buffered_events": len(events),
-            "measured": out, "bytes_per_line_24h_window": per_line_24h,
-            "method": (f"RSS growth of one WindowStore holding {cfg.memory_hours:g} h of history for "
-                       f"{cfg.memory_lines} lines, divided by buffered events; a 24 h window buffers 24 h of "
-                       f"events per line, so bytes/line = bytes/event x {cfg.events_per_line_hour:g} x 24 "
-                       "(extrapolated in time, linear: the store keeps per-event timestamps for periodicity)")}
+        n_events += len(events)
+        del events, pipe, batch
+        on_hour(h + 1)
+    return n_events
+
+
+def stage_window_memory(cfg: LoadConfig) -> dict[str, Any]:
+    """Steady-state feature-window memory per line, measured over a full window (not extrapolated).
+
+    ``memory_lines`` lines get ``memory_hours`` hours of traffic through the production ingest
+    path into one ``WindowStore("24h")``; the store's own accounting (``state_bytes``) is read
+    after every hour, so the report shows state growing for 24 h and then staying flat. A
+    second, smaller run under ``tracemalloc`` measures the live heap of the same workload and
+    checks that the accounting covers it (the ratio is reported).
+    """
+    import tracemalloc
+
+    from aegis.ingest.normalize import canonical_ip
+    from aegis.sentinel import WindowStore
+    from aegis.sentinel.features import StateLimits
+    hours = int(math.ceil(cfg.memory_hours))
+    lines = cfg.memory_lines
+    ws = WindowStore("24h")
+    series: list[dict[str, Any]] = []
+
+    def read(h: int, store: Any = ws) -> None:
+        acc = store.state_bytes(TENANT)
+        series.append({"hour": h, "accounted_bytes_per_line": (acc["packed"] + acc["line_overhead"]) / lines,
+                       "packed_bytes_per_line": acc["packed"] / lines,
+                       "line_overhead_bytes_per_line": acc["line_overhead"] / lines,
+                       "vocab_bytes": acc["vocab"], "vocab_keys": acc["vocab_keys"]})
+
+    c0 = time.process_time()
+    n_events = _feed_hours(ws, lines, hours, cfg, read)
+    cpu = time.process_time() - c0
+    sampled = ws.stats.sampled_bins
+    n_bins = ws.n_bins
+    del ws
+    gc.collect()
+
+    # cross-check: live heap (tracemalloc) of a smaller run vs the store's accounting
+    check_lines = max(10, min(40, lines // 10))
+    canonical_ip.cache_clear()
+    gc.collect()
+    ws2 = WindowStore("24h")
+    tracemalloc.start()
+    live0 = tracemalloc.get_traced_memory()[0]
+    _feed_hours(ws2, check_lines, hours, cfg, lambda h: None)
+    canonical_ip.cache_clear()          # process-wide ingest cache (bounded), not window state
+    gc.collect()
+    live = tracemalloc.get_traced_memory()[0] - live0
+    tracemalloc.stop()
+    acc2 = ws2.state_bytes(TENANT)
+    accounted2 = acc2["packed"] + acc2["line_overhead"] + acc2["vocab"]
+    del ws2
+    gc.collect()
+
+    last = series[-1]
+    full = next((x for x in series if x["hour"] == 24), last)
+    limits = StateLimits()
+    vocab_line = last["vocab_bytes"] / lines
+    # vocabularies are shared: what one more line adds is the marginal growth between the two runs
+    # (destinations / names already known cost nothing; per-line keys such as random NXDOMAIN names do)
+    marginal = max(0.0, (last["vocab_bytes"] - acc2["vocab"]) / max(1, lines - check_lines))
+    return {
+        "lines": lines, "simulated_hours": hours, "events": n_events,
+        "events_per_line_hour": cfg.events_per_line_hour, "series": series,
+        "bytes_per_line_24h_window": last["accounted_bytes_per_line"] + marginal,
+        "marginal_vocab_bytes_per_line": marginal,
+        "vocab_fixed_bytes_estimate": max(0.0, last["vocab_bytes"] - marginal * lines),
+        "accounted_bytes_per_line": last["accounted_bytes_per_line"],
+        "packed_bytes_per_line": last["packed_bytes_per_line"],
+        "line_overhead_bytes_per_line": last["line_overhead_bytes_per_line"],
+        "vocab_bytes": last["vocab_bytes"], "vocab_keys": last["vocab_keys"],
+        "vocab_bytes_per_line_here": vocab_line,
+        "growth_after_full_window": last["accounted_bytes_per_line"] / max(1.0, full["accounted_bytes_per_line"]) - 1.0,
+        "bound_bytes_per_line": limits.bytes_per_bin() * (n_bins + 1),
+        "limits": {"flow_events_per_bin": limits.flow_events_per_bin, "dns_events_per_bin": limits.dns_events_per_bin,
+                   "answers_per_bin": limits.answers_per_bin},
+        "sampled_bins": sampled,
+        "cpu_s_incl_ingest": cpu,
+        "live_heap_check": {"lines": check_lines, "live_bytes": live, "accounted_bytes": accounted2,
+                            "accounted_over_live": accounted2 / max(1, live)},
+        "method": (f"store accounting (numpy record arrays + per-line Python objects, sys.getsizeof) after {hours} h "
+                   f"of traffic for {lines} lines ({cfg.events_per_line_hour:g} events per line-hour), per line, "
+                   "plus the marginal growth of the shared tenant vocabularies per added line (from a second "
+                   f"{check_lines}-line run, which also checks the accounting against the live heap under "
+                   "tracemalloc): measured with a full 24 h window plus the closed hop, not extrapolated"),
+    }
 
 
 def stage_paced(cfg: LoadConfig, capacity_eps: float) -> list[dict[str, Any]]:
@@ -408,7 +484,21 @@ def stage_resonance(cfg: LoadConfig) -> dict[str, Any]:
                                                   f"counts {[r['lines'] for r in runs]})"),
             "fits_in_one_hour_on_one_core": (measured["cpu_s"] if measured else cpu_at(n)) < 3600,
         }
+    big = runs[-1]
+    per_run_cpu = big["cpu_s"]
+    subpop = {
+        "lines_per_run": big["lines"], "peak_memory_gb_per_run": big["peak_rss_growth_mb"] / 1e3,
+        "cpu_s_per_run": per_run_cpu, "basis": "measured (largest run)",
+        "at_scale": {str(n): {"runs": math.ceil(n / big["lines"]),
+                              "cpu_s_per_hour": math.ceil(n / big["lines"]) * per_run_cpu,
+                              "cores_to_finish_within_the_hour": math.ceil(n / big["lines"]) * per_run_cpu / 3600}
+                     for n in cfg.scales},
+        "note": ("per-run bound when the tenant is split into independent sub-populations of at most this many "
+                 "lines (region / BNG / CGNAT pool; a product decision, see aegis/scale/INTEGRATION.md): peak RAM "
+                 "is that of one run, whatever the tenant size; runs execute one after another or in parallel"),
+    }
     return {"runs": runs, "cpu_power_law": {"exponent": float(fit_cpu[0]), "coef": float(math.exp(fit_cpu[1]))},
+            "subpopulation_bound": subpop,
             "memory_power_law": {"exponent": float(fit_mem[0]), "coef_mb": float(math.exp(fit_mem[1]))},
             "projections": projections,
             "traffic": "aegis.resonance.sim, 24 h, NetFlow sampled 1:100 + unsampled resolver DNS, 1 % infected lines"}
@@ -506,7 +596,8 @@ def cost_model(cfg: LoadConfig, scales: list[dict[str, Any]], memory: dict[str, 
                                    "total": cpu_eur_line_month + ram_eur_line_month + res_ram_eur_line_month
                                    + storage_eur_line_month},
             "required_events_per_s": required_eps, "vcpus_needed": vcpus,
-            "window_ram_gb_total": ram_gb_line * n, "resonance_peak_ram_gb": res_mem_gb,
+            "window_ram_gb_total": ram_gb_line * n + memory.get("vocab_fixed_bytes_estimate", 0.0) / 1e9,
+            "resonance_peak_ram_gb": res_mem_gb,
             "resonance_basis": resonance["projections"][str(n)]["basis"],
         }
     return {"prices": asdict(p), "events_per_line_hour": eph, "bytes_per_event": bytes_per_event,
@@ -515,7 +606,9 @@ def cost_model(cfg: LoadConfig, scales: list[dict[str, Any]], memory: dict[str, 
                 "(configurable; sampled NetFlow at 1:1000 would be far lower)",
                 "CPU = measured CPU seconds per event (process_time, robust to other load on the host) divided by "
                 f"target utilization {p.target_utilization:g}",
-                "window RAM per line = measured bytes per buffered event x 24 h of events (see memory section)",
+                "window RAM per line = measured state of a full 24 h window per line plus the marginal growth of "
+                "the shared vocabularies per line; the fixed vocabulary part is added once to the totals (see "
+                "memory section)",
                 "RESONANCE CPU/RAM per hourly run from measured runs (10k) and a fitted power law beyond",
                 f"raw collector files retained {p.raw_retention_days:g} days" if p.retain_raw
                 else "raw collector files not retained",
@@ -610,11 +703,32 @@ CPU-time figures much less).</p>
                          p["kept_up"], f"{f(p['latency_ms']['p50'])} / {f(p['latency_ms']['p99'])} / "
                                        f"{f(p['latency_ms']['max'])}"] for p in pc]))
     mem = report["window_memory"]
-    parts.append(f"</div><h2>Memory</h2><p>Feature-window state: <strong>{f(mem['bytes_per_line_24h_window'] / 1e3, 0)}"
-                 f" KB per line</strong> with a full 24 h window (<em>extrapolated in time</em>: "
-                 f"{escape(mem['method'])}).</p>")
-    parts.append(table(["setting", "bytes per buffered event", "bytes per line (measured history)"],
-                       [[k, v["bytes_per_buffered_event"], v["bytes_per_line"]] for k, v in mem["measured"].items()]))
+    parts.append(f"</div><h2>Memory</h2><p>Feature-window state: <strong>{f(mem['bytes_per_line_24h_window'] / 1e3, 1)}"
+                 f" KB per line</strong> with a full 24 h window, <em>measured</em> ({escape(mem['method'])}). "
+                 f"Hard bound per line whatever the event rate: {f(mem['bound_bytes_per_line'] / 1e3, 0)} KB of "
+                 f"packed records (caps {escape(json.dumps(mem['limits']))}); hops over a cap keep a coordinated "
+                 f"sample ({mem['sampled_bins']:,} sampled hops in this run).</p>")
+    parts.append(table(["measure (per line unless stated)", "value"],
+                       [["window state per line incl. marginal vocabulary (KB)", mem["bytes_per_line_24h_window"] / 1e3],
+                        ["store accounting without vocabularies (KB)", mem["accounted_bytes_per_line"] / 1e3],
+                        ["of which packed numpy records (KB)", mem["packed_bytes_per_line"] / 1e3],
+                        ["marginal vocabulary growth per added line (KB)", mem["marginal_vocab_bytes_per_line"] / 1e3],
+                        ["tenant vocabularies in this run (MB, shared by all lines)", mem["vocab_bytes"] / 1e6],
+                        ["vocabulary keys (shared)", mem["vocab_keys"]],
+                        ["accounting / live heap (tracemalloc check run)",
+                         f"{mem['live_heap_check']['accounted_over_live']:.3f}"],
+                        ["growth from hour 24 to the last hour (the closed hop kept for on-demand contacts)",
+                         f"{100 * mem['growth_after_full_window']:+.1f} %"]]))
+    parts.append(table(["hour", "accounted KB/line", "packed KB/line", "vocabulary keys"],
+                       [[x["hour"], x["accounted_bytes_per_line"] / 1e3, x["packed_bytes_per_line"] / 1e3,
+                         x["vocab_keys"]]
+                        for x in mem["series"] if x["hour"] % 4 == 0 or x["hour"] == mem["series"][-1]["hour"]]))
+    cmp_ = report.get("comparison")
+    if cmp_:
+        parts.append(f"<h3>Before / after</h3><p class='note'>Previous report: {escape(cmp_['previous_generated_at'])}"
+                     f" ({escape(cmp_['previous_window_method'])}).</p>")
+        parts.append(table(["quantity", "previous", "this run"], cmp_["rows"]))
+        parts.append(f"<p class='note'>{escape(cmp_.get('note', ''))}.</p>")
     rs = report["resonance"]
     parts.append("<h2>RESONANCE hourly job</h2><div class='wrap'>")
     parts.append(table(["lines", "events (24 h)", "table build s", "detect s (wall)", "CPU s", "peak RAM growth MB",
@@ -624,6 +738,14 @@ CPU-time figures much less).</p>
     parts.append(table(["lines", "CPU s per hourly run", "peak RAM GB", "fits in 1 h on 1 core", "basis"],
                        [[k, v["cpu_s_per_hourly_run"], v["peak_memory_gb"], v["fits_in_one_hour_on_one_core"],
                          v["basis"]] for k, v in rs["projections"].items()]))
+    sb = rs.get("subpopulation_bound")
+    if sb:
+        parts.append(f"</div><p class='note'>Per-run bound: {escape(sb['note'])}. One run of "
+                     f"{sb['lines_per_run']:,} lines: {f(sb['peak_memory_gb_per_run'], 2)} GB peak, "
+                     f"{f(sb['cpu_s_per_run'])} CPU s.</p><div class='wrap'>")
+        parts.append(table(["lines", "runs per hour", "CPU s per hour", "cores to finish within the hour"],
+                           [[k, v["runs"], v["cpu_s_per_hour"], v["cores_to_finish_within_the_hour"]]
+                            for k, v in sb["at_scale"].items()]))
     rp = report["resonance_prep"]
     parts.append(f"</div><p class='note'>Sharded RESONANCE preparation ({rp['lines']:,} lines, {rp['events']:,} events, "
                  f"{rp['workers']} workers): {f(rp['sharded_wall_s'], 2)} s wall vs {f(rp['single_wall_s'], 2)} s "
@@ -658,6 +780,42 @@ def environment() -> dict[str, Any]:
             "platform": platform.platform(), "loadavg_start": list(os.getloadavg())}
 
 
+def comparison(prev: dict[str, Any], cur: dict[str, Any]) -> dict[str, Any]:
+    """Before / after rows for the headline memory and cost numbers (earlier report vs this run)."""
+    rows: list[list[Any]] = [["feature-window state per line (KB)",
+                              prev["window_memory"]["bytes_per_line_24h_window"] / 1e3,
+                              cur["window_memory"]["bytes_per_line_24h_window"] / 1e3]]
+    for n, c in cur["cost"]["scales"].items():
+        p = prev.get("cost", {}).get("scales", {}).get(n)
+        if p is None:
+            continue
+        rows += [[f"{int(n):,} lines: feature-window RAM total (GB)", p["window_ram_gb_total"], c["window_ram_gb_total"]],
+                 [f"{int(n):,} lines: RESONANCE peak RAM per hourly run (GB)", p["resonance_peak_ram_gb"],
+                  c["resonance_peak_ram_gb"]],
+                 [f"{int(n):,} lines: RESONANCE CPU s per hourly run",
+                  prev["resonance"]["projections"][n]["cpu_s_per_hourly_run"],
+                  cur["resonance"]["projections"][n]["cpu_s_per_hourly_run"]],
+                 [f"{int(n):,} lines: € per line-month, window RAM", p["eur_per_line_month"]["window_ram"],
+                  c["eur_per_line_month"]["window_ram"]],
+                 [f"{int(n):,} lines: € per line-month, RESONANCE RAM", p["eur_per_line_month"]["resonance_ram"],
+                  c["eur_per_line_month"]["resonance_ram"]],
+                 [f"{int(n):,} lines: € per line-month, total", p["eur_per_line_month"]["total"],
+                  c["eur_per_line_month"]["total"]]]
+    measured: list[list[Any]] = []
+    prev_runs = {r["lines"]: r for r in prev.get("resonance", {}).get("runs", [])}
+    for r in cur["resonance"]["runs"]:
+        q = prev_runs.get(r["lines"])
+        if q is not None:
+            measured += [[f"RESONANCE measured at {r['lines']:,} lines: peak RAM growth (MB)",
+                          q["peak_rss_growth_mb"], r["peak_rss_growth_mb"]],
+                         [f"RESONANCE measured at {r['lines']:,} lines: CPU s", q["cpu_s"], r["cpu_s"]]]
+    rows = rows[:1] + measured + rows[1:]
+    return {"previous_generated_at": prev.get("generated_at", "unknown"),
+            "previous_window_method": prev["window_memory"].get("method", ""), "rows": rows,
+            "note": ("rows at line counts beyond the largest measured RESONANCE run are power-law extrapolations "
+                     "(their basis is stated in the RESONANCE section); the measured rows come first")}
+
+
 def findings(report: dict[str, Any]) -> list[str]:
     out = []
     sc = report["scales"]
@@ -675,17 +833,27 @@ def findings(report: dict[str, Any]) -> list[str]:
                f"one coordinator handled {big['sharded']['events_per_s_wall']:,.0f} events/s here, so a deployment at "
                "that size runs several coordinators fed by collector-side partitioning (Kafka partitions keyed with "
                "aegis.scale.kafka_partition_for_line).")
-    mem = report["window_memory"]["bytes_per_line_24h_window"]
-    out.append(f"Feature-window memory dominates at scale: about {mem / 1e3:,.0f} KB per line for a 24 h window "
-               f"({mem * big['lines'] / 1e9:,.0f} GB at {big['lines']:,} lines). The store keeps per-event timestamps "
-               "for periodicity features; bounding them (reservoirs) in aegis.sentinel.features is the main lever.")
+    wm = report["window_memory"]
+    mem = wm["bytes_per_line_24h_window"]
+    out.append(f"Feature-window state is bounded streaming state: {mem / 1e3:,.0f} KB per line measured with a full "
+               f"24 h window ({mem * big['lines'] / 1e9:,.0f} GB at {big['lines']:,} lines, split over the line "
+               f"shards), flat once the window is full; whatever the event rate a line holds at most "
+               f"{wm['bound_bytes_per_line'] / 1e3:,.0f} KB of packed records (hops over the caps keep a coordinated "
+               "sample, see aegis.sentinel.features).")
     proj = report["resonance"]["projections"]
+    sub = report["resonance"]["subpopulation_bound"]
     for k, v in proj.items():
         if not v["fits_in_one_hour_on_one_core"] or v["peak_memory_gb"] > 64:
-            out.append(f"RESONANCE at {int(k):,} lines ({v['basis']}): {v['cpu_s_per_hourly_run']:,.0f} CPU s and "
-                       f"{v['peak_memory_gb']:,.0f} GB per hourly run. Detection is not sharded by destination "
-                       "(the permutation null needs every destination of each line), so at this size the population "
-                       "must be split into independent sub-populations (e.g. per region / BNG), each tested on its own.")
+            at = sub["at_scale"].get(k)
+            extra = (f" Split into independent sub-populations of {sub['lines_per_run']:,} lines (region / BNG; "
+                     f"see aegis/scale/INTEGRATION.md), one run needs {sub['peak_memory_gb_per_run']:,.1f} GB and "
+                     f"{sub['cpu_s_per_run']:,.0f} CPU s, so {at['runs']:,} runs take "
+                     f"{at['cores_to_finish_within_the_hour']:,.1f} cores per hour with RAM bounded by the runs "
+                     "executing concurrently.") if at else ""
+            out.append(f"RESONANCE at {int(k):,} lines on one population ({v['basis']}): "
+                       f"{v['cpu_s_per_hourly_run']:,.0f} CPU s and {v['peak_memory_gb']:,.0f} GB per hourly run "
+                       "(detection does not shard by destination: the permutation null needs every destination of "
+                       "each line)." + extra)
     rp = report["resonance_prep"]
     out.append(f"Sharded RESONANCE preparation ({rp['lines']:,} lines, {rp['workers']} workers) took "
                f"{rp['sharded_wall_s']:.1f} s vs {rp['single_wall_s']:.1f} s single-node: at this size shipping the "
@@ -719,6 +887,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--reuse", default=None, help="report JSON whose line-path stages are kept; only the "
                     "RESONANCE stages, cost model and findings are recomputed")
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--compare", default=None, help="earlier report JSON for the before/after table (default: the "
+                    "report already in --out, if any)")
     ap.add_argument("--resonance-worker", type=int, default=None, help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
     if a.resonance_worker is not None:
@@ -777,6 +947,9 @@ def main(argv: list[str] | None = None) -> int:
         "resonance_prep": resonance_prep, "runtime_s": None,
     }
     report["cost"] = cost_model(cfg, scales, memory, resonance)
+    prev_path = Path(a.compare) if a.compare else out / "load_report.json"
+    if prev_path.exists():
+        report["comparison"] = comparison(json.loads(prev_path.read_text()), report)
     report["findings"] = findings(report)
     report["runtime_s"] = time.perf_counter() - t0
     (out / "load_report.json").write_text(json.dumps(report, indent=2, default=str))
