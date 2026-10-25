@@ -20,6 +20,11 @@ Module interfaces: `docs/ARCHITECTURE.md` — the contract every module must hon
 - Fail closed: unknown topology, missing/expired authorization, unverified signature => deny.
 - No DPI payloads, no TLS decryption, no subscriber identity in events (pseudonyms only).
 
+## Founder's Charter
+`docs/CHARTER.md` states the principles the product is built on. Honor them in every change.
+Scripture references live only in that charter: never put verses or citations in the product UI,
+API text, website, sales material, or system text. Elsewhere, use the plain principle sayings only.
+
 ## Conventions
 - Python 3.11+, package `aegis/`, contracts in `aegis/contracts/models.py` (do not change without bumping schema_version).
 - Storage via `aegis/storage/db.py` (`make_engine`, `init_db`, `DocStore`). SQLite in tests, PostgreSQL in prod.
