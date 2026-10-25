@@ -53,7 +53,8 @@ M = TypeVar("M", bound=BaseModel)
 
 # A model's own id comes first; ``case_id`` is last because several models
 # (ProposedAction, investigation reports) also carry the case they belong to.
-_ID_FIELDS = ("finding_id", "evidence_id", "action_id", "policy_id", "event_id", "case_id")
+# ``doc_id`` is a generic key for configuration records (sources, IOC bundles, topology...).
+_ID_FIELDS = ("finding_id", "evidence_id", "action_id", "policy_id", "event_id", "doc_id", "case_id")
 
 
 def _id_of(obj: BaseModel) -> str:
