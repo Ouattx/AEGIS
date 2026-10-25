@@ -80,6 +80,13 @@ def intel_reconcile(self, tenant_id, *, since, campaigns=()):
   analyst-verified campaigns into shareable indicators, call
   `self.intel.add_campaign_indicators(tenant_id, campaigns, now=...)` and list the
   verified `(type, value)` pairs in `share_indicators(..., verified_local=...)`.
+* Campaign-derived (operator-originated, `grp:operator*`) malicious indicators are **excluded from
+  SENTINEL bundles by default** (`BundleBuildReport.excluded["operator_detection"]`): fed back as IOCs
+  they would let one telemetry observation corroborate itself. `include_operator_detections=True`
+  emits them in the `operator-telemetry` independence group (same origin as SENTINEL/RESONANCE), so
+  they never count as an independent witness. Operator allowlist (benign) entries are always kept.
+* Campaign IP destinations inside `SharingPolicy.own_networks` (subscriber space) are never released in
+  DP aggregates, even blinded; with `own_networks` unset, aggregate IP destinations are withheld.
 
 ## 2. Sharing (opt-in, per tenant)
 

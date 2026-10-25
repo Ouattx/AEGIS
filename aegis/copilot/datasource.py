@@ -263,8 +263,7 @@ class ServiceDataSource:
                         ("quarantined", lambda: svc.quarantine.count(tenant_id)),
                         ("quarantine_reasons", lambda: svc.quarantine.reasons(tenant_id)),
                         ("bus_inflight", lambda: svc.bus.depth(tenant_id)),
-                        ("bus_depth_total", lambda: svc.bus.depth()),
-                        ("live_enforcements", lambda: len(svc.executor.active()))):
+                        ("live_enforcements", lambda: self._live_enforcements(tenant_id))):
             try:
                 tenant[key] = fn()
             except Exception as exc:  # one missing gauge must not hide the others
@@ -272,6 +271,17 @@ class ServiceDataSource:
                 tenant.setdefault("unavailable", []).append(f"{key}:{type(exc).__name__}")
         out["tenant"] = tenant
         return out
+
+    def _live_enforcements(self, tenant_id: str) -> int:
+        """Live executions of *this tenant's* actions only.
+
+        The executor is process-wide; its raw ``active()`` list (and the global bus depth)
+        would disclose other tenants' activity, so each id is resolved through the
+        tenant-scoped document store and foreign ids are dropped.
+        """
+        svc = self._svc
+        return sum(1 for aid in svc.executor.active()
+                   if svc.docs.get(ProposedAction, tenant_id, aid) is not None)
 
     def simulate(self, tenant_id: str, action: ProposedAction) -> MirrorResult:
         if action.tenant_id != tenant_id:

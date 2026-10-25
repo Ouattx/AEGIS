@@ -3,7 +3,8 @@
 The policy is deliberately conservative; it never declares a device clean.
 
 * ``ABSTAIN`` (insufficient capture): shorter than ``MIN_SPAN_H`` hours or fewer than
-  ``MIN_EVENTS`` events. Nothing is concluded.
+  ``MIN_EVENTS`` events, or more than ``MAX_QUARANTINED_FRACTION`` of the capture's
+  records quarantined (e.g. timestamps in the future). Nothing is concluded.
 * ``MALICIOUS``: at least one *witness* feed match (signed, active, malicious,
   verified contact, uncontradicted enough, see :mod:`.infra`) with confidence at least
   ``MALICIOUS_MIN_CONFIDENCE``, **and** behavior from the capture: a timer on that same
@@ -32,9 +33,11 @@ from aegis.contracts.models import Finding, Verdict
 from aegis.homelab.infra import InfraSummary
 from aegis.homelab.timers import TimerAnalysis
 
-POLICY_VERSION = "homelab-verdict/1.0.0"
+POLICY_VERSION = "homelab-verdict/1.1.0"
 MIN_SPAN_H = 6.0
 MIN_EVENTS = 20
+#: above this share of quarantined records the capture is not representative: abstain
+MAX_QUARANTINED_FRACTION = 0.5
 MALICIOUS_MIN_CONFIDENCE = 0.7
 NXDOMAIN_BURST = 20
 CAPTURE_ORIGIN = "operator-telemetry"      # same independence group SENTINEL uses for capture-derived evidence
@@ -84,7 +87,9 @@ def _indicator_driven(rule: str | None) -> bool:
 
 def decide(*, entity_pseudonym: str, span_s: float, n_events: int, timers: TimerAnalysis, infra: InfraSummary,
            sentinel_findings: list[Finding], sentinel_rules: Mapping[str, str] | None = None,
-           sentinel_model_note: str | None = None, synthetic: bool = False) -> BoxVerdict:
+           sentinel_model_note: str | None = None, synthetic: bool = False,
+           records_quarantined: int = 0, records_total: int = 0,
+           quarantine_reasons: Mapping[str, int] | None = None) -> BoxVerdict:
     """Apply the pre-registered policy (see module docstring).
 
     ``sentinel_rules`` maps finding ids to the SENTINEL fusion rule that produced them; a
@@ -98,6 +103,12 @@ def decide(*, entity_pseudonym: str, span_s: float, n_events: int, timers: Timer
     caveats.extend(timers.notes)
     if infra.bundle is None:
         caveats.append("No signed threat feed was loaded: known-infrastructure matching was not performed.")
+    # capture-wide (quarantined records cannot be attributed to a device)
+    q_frac = records_quarantined / records_total if records_total else 0.0
+    if records_quarantined:
+        why = ", ".join(f"{k} {v}" for k, v in sorted((quarantine_reasons or {}).items())) or "see ingest table"
+        caveats.append(f"{records_quarantined} capture record(s) ({q_frac:.0%} of this capture's records) were "
+                       f"quarantined and not analysed ({why}).")
 
     signals: list[str] = []
     idle = timers.idle_timers()
@@ -118,6 +129,11 @@ def decide(*, entity_pseudonym: str, span_s: float, n_events: int, timers: Timer
                                                      else "low confidence")
         signals.append(f"weak feed match on {m.value} ({m.source}, {why})")
 
+    if q_frac > MAX_QUARANTINED_FRACTION:
+        return BoxVerdict(entity_pseudonym, Verdict.ABSTAIN, "Not enough usable data to say anything",
+                          [f"{q_frac:.0%} of the capture's records were quarantined (limit "
+                           f"{MAX_QUARANTINED_FRACTION:.0%}): what remains does not represent the capture"],
+                          signals, caveats, 0, [])
     if span_s < MIN_SPAN_H * 3600 or n_events < MIN_EVENTS:
         return BoxVerdict(entity_pseudonym, Verdict.ABSTAIN, "Not enough data to say anything",
                           [f"capture of {span_s / 3600:.1f} h with {n_events} events is below the minimum "
@@ -170,4 +186,4 @@ def decide(*, entity_pseudonym: str, span_s: float, n_events: int, timers: Timer
     return BoxVerdict(entity_pseudonym, Verdict.ABSTAIN, headline, reasons, signals, caveats, 0, [])
 
 
-__all__ = ["BoxVerdict", "MIN_EVENTS", "MIN_SPAN_H", "POLICY_VERSION", "STANDARD_CAVEATS", "decide"]
+__all__ = ["BoxVerdict", "MAX_QUARANTINED_FRACTION", "MIN_EVENTS", "MIN_SPAN_H", "POLICY_VERSION", "STANDARD_CAVEATS", "decide"]

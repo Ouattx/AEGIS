@@ -70,6 +70,9 @@ Service wiring (suggested): in `AegisService.ingest_batch`, when `AEGIS_SHARDS >
 `ShardedLinePipeline` per tenant kept for the service lifetime (it holds window state), and
 persist `result.findings` exactly like the single-node path does. Keep the single-node path
 as the default: below roughly 20k events/s one process is enough (see the load report).
+`LineShardConfig` fails closed on tenancy: every source's tenant needs a key in `tenant_keys`, and
+`mode="sentinel"` accepts exactly one tenant (its `sentinel_kwargs["tenant_id"]` is set from
+`tenant_keys` when omitted, and a mismatch raises `ValueError`).
 
 Evidence and ledger from workers: `evidence_factory` runs inside each worker and must return an
 `EvidenceStore` on the shared database. The ledger serializes appends per tenant across

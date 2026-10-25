@@ -415,3 +415,39 @@ def test_campaign_indicators_respect_topology_and_tenancy():
     assert all(not PSEUDONYM.search(json.dumps(i.to_dict())) for i in inds)
     with pytest.raises(ValueError):
         campaign_indicators([campaign(["d:x.example"], lines(5), tenant="other")], TENANT, now=NOW)
+
+
+def test_release_never_includes_subscriber_space_destination_ips():
+    """A campaign destination inside own_networks (e.g. a compromised subscriber acting as relay)
+    is never released, even blinded; with own_networks unconfigured, IP destinations are withheld."""
+    k = key()
+    camps = [campaign(["d:relay.example", "ip:198.18.4.7", "ip:192.0.2.80"], lines(200), cid="rc-sub")]
+    acct = PrivacyAccountant()
+    acct.configure(TENANT, epsilon_total=10.0, delta_total=1e-3)
+    rel = release_campaign_counts(camps, policy(), acct, key(), Signer.generate("s"), now=NOW, rng=SeededRandom(5))
+    toks = {t for e in rel.entries for t in e.destination_tokens}
+    assert k.token("ip", "198.18.4.7") not in toks
+    assert k.token("ip", "192.0.2.80") in toks and k.token("domain", "relay.example") in toks
+    rel2 = release_campaign_counts(camps, policy(own_networks=()), acct, key(), Signer.generate("s"), now=NOW,
+                                   rng=SeededRandom(5))
+    toks2 = {t for e in rel2.entries for t in e.destination_tokens}
+    assert toks2 == {k.token("domain", "relay.example")}
+
+
+def test_bundle_never_feeds_operator_detections_back_as_independent_iocs():
+    """RESONANCE-derived indicators must not corroborate RESONANCE: excluded from IOC bundles by
+    default, or emitted in SENTINEL's own telemetry independence group when asked for."""
+    from aegis.intel import IntelStore, build_ioc_bundle
+    from aegis.intel.bundle import TELEMETRY_GROUP
+    from aegis.sentinel.detector import TELEMETRY_GROUP as SENTINEL_TELEMETRY_GROUP
+
+    assert TELEMETRY_GROUP == SENTINEL_TELEMETRY_GROUP
+    inds = campaign_indicators(local_campaigns(), TENANT, now=NOW)
+    assert inds
+    st = IntelStore(TENANT)
+    st.add_indicators(inds)
+    signer = Signer.generate("ioc")
+    b, rep = build_ioc_bundle(st, signer, now=NOW, issuer="x")
+    assert b["indicators"] == [] and rep.excluded["operator_detection"] >= 1
+    b2, _ = build_ioc_bundle(st, signer, now=NOW, issuer="x", include_operator_detections=True)
+    assert b2["indicators"] and {e["source_group"] for e in b2["indicators"]} == {TELEMETRY_GROUP}

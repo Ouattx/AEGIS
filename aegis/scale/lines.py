@@ -163,6 +163,22 @@ class LineShardConfig:
     #: findings are returned to the coordinator without persisted evidence (load tests only)
     evidence_factory: Callable[[], Any] | None = None
 
+    def __post_init__(self) -> None:
+        # Fail closed on tenancy: every source must belong to a tenant with a pseudonym key, and a
+        # SENTINEL shard (which persists evidence and findings) serves exactly one tenant, so a
+        # shared shard can never mix tenants' detector state or write into another tenant's store.
+        foreign = sorted({src.tenant_id for src in self.sources.values()} - set(self.tenant_keys))
+        if foreign:
+            raise ValueError(f"sources of tenants without a pseudonym key: {foreign}")
+        if self.mode == "sentinel":
+            if len(self.tenant_keys) != 1:
+                raise ValueError("mode='sentinel' serves exactly one tenant: run one pipeline per tenant")
+            (tenant,) = self.tenant_keys
+            given = self.sentinel_kwargs.get("tenant_id")
+            if given is not None and given != tenant:
+                raise ValueError("sentinel_kwargs['tenant_id'] does not match tenant_keys")
+            self.sentinel_kwargs = {**self.sentinel_kwargs, "tenant_id": tenant}
+
     def window_kwargs(self) -> dict[str, Any]:
         return dict(hop=timedelta(seconds=self.hop_s) if self.hop_s else None,
                     allowed_lateness=timedelta(seconds=self.allowed_lateness_s),

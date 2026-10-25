@@ -224,6 +224,26 @@ def test_insufficient_capture_abstains(infected):
     assert v.verdict == Verdict.ABSTAIN and "below the minimum" in v.reasons[0]
 
 
+def test_mostly_quarantined_capture_abstains_and_partial_quarantine_is_disclosed(infected):
+    _, _, a, _ = infected
+    d = _dev(a)
+    common = dict(entity_pseudonym=d.entity_pseudonym, span_s=24 * 3600, n_events=500, timers=d.timers,
+                  infra=d.infra, sentinel_findings=[])
+    v = decide(**common, records_quarantined=900, records_total=1000, quarantine_reasons={"future_timestamp": 900})
+    assert v.verdict == Verdict.ABSTAIN and "quarantined" in v.reasons[0]
+    assert any("future_timestamp 900" in c for c in v.caveats)
+    v2 = decide(**common, records_quarantined=10, records_total=1000, quarantine_reasons={"bad_record": 10})
+    assert any("quarantined and not analysed" in c for c in v2.caveats)
+
+
+def test_cli_synthetic_default_start_is_never_in_the_future(tmp_path, capsys):
+    cap = tmp_path / "cap"
+    assert cli_main(["synthetic", str(cap), "--hours", "7"]) == 0
+    capsys.readouterr()
+    manifest = json.loads((cap / "capture.json").read_text())
+    assert datetime.fromisoformat(manifest["ended_at"]) <= datetime.now(timezone.utc)
+
+
 def test_behavioral_sentinel_alert_corroborates_but_indicator_rule_does_not(infected):
     _, imp, a, _ = infected
     d = _dev(a)

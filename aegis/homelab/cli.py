@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal, Sequence
 
@@ -65,7 +66,10 @@ def _cmd_analyze(ns: argparse.Namespace) -> int:
 
 def _cmd_synthetic(ns: argparse.Namespace) -> int:
     start = (datetime.fromisoformat(ns.start.replace("Z", "+00:00")) if ns.start
-             else datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0))
+             # default: the capture ends at the last full hour, never in the future (future records
+             # are quarantined by ingest, which would leave almost nothing to analyse)
+             else datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+             - timedelta(hours=math.ceil(ns.hours)))
     if start.tzinfo is None:
         raise SystemExit("--start needs a timezone (e.g. 2026-10-20T06:00:00Z)")
     sc = write_synthetic_capture(ns.dir, SyntheticBoxSpec(start=start, hours=ns.hours, seed=ns.seed,
@@ -111,7 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.set_defaults(fn=_cmd_analyze)
     s = sub.add_parser("synthetic", help="write a SYNTHETIC demo capture of a fictional box")
     s.add_argument("dir")
-    s.add_argument("--start", help="capture start (ISO 8601 with timezone); default: this hour")
+    s.add_argument("--start", help="capture start (ISO 8601 with timezone); default: --hours before the last full hour")
     s.add_argument("--hours", type=float, default=24.0)
     s.add_argument("--seed", type=int, default=7)
     s.add_argument("--no-beacon", action="store_true", help="omit the emulated C2 beacon")

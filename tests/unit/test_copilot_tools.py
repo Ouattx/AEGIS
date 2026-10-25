@@ -185,3 +185,18 @@ def test_analyze_ingest_needs_history_and_stays_quiet_when_stable():
         "sources": [{"records_read": 1000, "quarantined": 3, "duplicates": 1}]}) for i in range(8)]
     res = analyze_ingest(stable)
     assert res["status"] == "ok" and res["observations"] == []
+
+
+def test_health_gauges_never_disclose_other_tenants(env, monkeypatch):
+    """The executor and bus are process-wide: health shows only this tenant's live actions."""
+    from aegis.contracts.models import ActionType, ProposedAction
+
+    svc, _ = env
+    a_action = ProposedAction(tenant_id=A, case_id="case-x", action_type=list(ActionType)[0], targets=["192.0.2.1"],
+                              created_by="analyst", created_at=svc.clock())
+    svc.docs.put(a_action)
+    monkeypatch.setattr(svc.executor, "active", lambda: [a_action.action_id, "foreign-action-id"])
+    ha = _call(svc, "health_status", {}, tenant=A).data["tenant"]
+    hb = _call(svc, "health_status", {}, tenant=B).data["tenant"]
+    assert ha["live_enforcements"] == 1 and hb["live_enforcements"] == 0
+    assert "bus_depth_total" not in ha and "bus_depth_total" not in hb

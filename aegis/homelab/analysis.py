@@ -242,7 +242,10 @@ def analyze_single_home(capture: CaptureImport, *, usage: UsageWindows | None = 
         verdict = decide(entity_pseudonym=pseudo, span_s=capture.span_s, n_events=len(dev_events), timers=timers,
                          infra=infra, sentinel_findings=dev_findings, sentinel_rules=finding_rules,
                          sentinel_model_note=SENTINEL_OOD_NOTE if trained is not None else
-                         "SENTINEL ran without a model (rules and anomaly only).", synthetic=capture.synthetic)
+                         "SENTINEL ran without a model (rules and anomaly only).", synthetic=capture.synthetic,
+                         records_quarantined=capture.quarantined,
+                         records_total=capture.quarantined + len(capture.events),
+                         quarantine_reasons=capture.quarantine_reasons)
 
         ev: list[Evidence] = list(capture_ev)
         counter: list[Evidence] = []

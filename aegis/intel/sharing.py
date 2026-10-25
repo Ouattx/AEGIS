@@ -590,7 +590,9 @@ def release_campaign_counts(campaigns: Sequence[Campaign], policy: SharingPolicy
         vals = []
         for d in c.destinations:
             kind, _, v = d.partition(":")
-            if kind == "d" or (kind == "ip" and not c.shared_hosting_domain):
+            if kind == "d":
+                vals.append(v)
+            elif kind == "ip" and not c.shared_hosting_domain and _ip_shareable(v, policy):
                 vals.append(v)
         if not vals:
             continue
@@ -598,6 +600,19 @@ def release_campaign_counts(campaigns: Sequence[Campaign], policy: SharingPolicy
         members[c.campaign_id] = list(c.member_lines)
     return release_counts(policy.tenant_id, groups, members, policy, accountant, key, signer, now=now,
                           statistic="infected_lines_per_campaign", rng=rng)
+
+
+def _ip_shareable(value: str, policy: SharingPolicy) -> bool:
+    """Same subscriber-space rule as indicator packages: never release (even blinded) an
+    address inside ``own_networks``; with ``own_networks`` unconfigured, withhold IPs (fail closed)."""
+    if not policy.own_networks:
+        return False
+    try:
+        net = ipaddress.ip_network(value, strict=False)
+    except ValueError:
+        return False
+    return not any(net.version == o.version and net.overlaps(o)  # type: ignore[arg-type]
+                   for o in (ipaddress.ip_network(n, strict=False) for n in policy.own_networks))
 
 
 def verify_release(rel: AggregateRelease | dict[str, Any], keyring: KeyRing) -> AggregateRelease:

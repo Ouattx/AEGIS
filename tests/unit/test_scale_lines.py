@@ -301,3 +301,17 @@ def test_sentinel_shards_persist_evidence_and_keep_the_ledger_valid(corpus, tmp_
     ok, bad = store.ledger.verify_chain(c.tenant_id)
     assert ok and bad is None
     eng.dispose()
+
+
+def test_line_shard_config_fails_closed_on_tenancy():
+    src = SourceConfig(tenant_id="t1", source_id="nf", source_kind=SourceKind.NETFLOW,
+                       vantage=Vantage.SUBSCRIBER_LINE, collection_authorization_id="auth-1")
+    with pytest.raises(ValueError, match="without a pseudonym key"):
+        LineShardConfig(sources={"nf": src}, tenant_keys={"t2": b"k" * 32}, mode="ingest")
+    with pytest.raises(ValueError, match="exactly one tenant"):
+        LineShardConfig(sources={"nf": src}, tenant_keys={"t1": b"k" * 32, "t2": b"j" * 32}, mode="sentinel")
+    with pytest.raises(ValueError, match="does not match"):
+        LineShardConfig(sources={"nf": src}, tenant_keys={"t1": b"k" * 32}, mode="sentinel",
+                        sentinel_kwargs={"tenant_id": "t2"})
+    cfg = LineShardConfig(sources={"nf": src}, tenant_keys={"t1": b"k" * 32}, mode="sentinel")
+    assert cfg.sentinel_kwargs["tenant_id"] == "t1"     # SENTINEL rejects any other tenant's event
