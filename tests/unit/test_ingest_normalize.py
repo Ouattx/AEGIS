@@ -98,6 +98,12 @@ def test_duration_seconds_and_epoch_ms():
     ("bytes_out", True, "bad_bytes_out"),
     ("bytes_out", 1.5, "bad_bytes_out"),
     ("bytes_out", [1], "bad_bytes_out"),
+    ("bytes_out", "9007199254740992", "bad_bytes_out"),
+    ("bytes_out", 9007199254740992.0, "bad_bytes_out"),
+    ("bytes_in", 2**53, "bad_bytes_in"),
+    ("packets_out", 2**63 - 1, "bad_packets_out"),
+    ("packets_in", "9007199254740992", "bad_packets_in"),
+    ("duration_ms", 9007199254740992.0, "bad_duration_ms"),
     ("protocol", "300", "bad_protocol"),
     ("protocol", "t c p", "bad_protocol"),
     ("protocol", False, "bad_protocol"),
@@ -111,6 +117,16 @@ def test_strict_rejections(field, value, code):
     with pytest.raises(NormalizationError) as ei:
         normalize(flow_raw(**{field: value}), src(), PSEUDO, NOW)
     assert ei.value.code == code
+
+
+def test_counters_at_json_safe_integer_limit_are_hashable_and_revalidate():
+    from aegis.ingest.validator import Validator
+    top = 2**53 - 1
+    ev = normalize(flow_raw(bytes_out=str(top), bytes_in=float(top), packets_out=top, packets_in=top,
+                            duration_ms=top), src(), PSEUDO, NOW)
+    assert ev.flow.bytes_out == top and ev.flow.bytes_in == top
+    sha256_hex(ev.model_dump(mode="json"))  # RFC 8785 accepts it
+    assert isinstance(Validator(clock=lambda: NOW).validate(ev.model_dump(mode="json")), ObservationEvent)
 
 
 @pytest.mark.parametrize("kw,code", [

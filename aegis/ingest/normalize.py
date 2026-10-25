@@ -31,7 +31,9 @@ from aegis.contracts.models import (
 from aegis.ingest import parsers
 from aegis.ingest.pseudonym import Pseudonymizer
 
-_INT64_MAX = 2**63 - 1
+# Largest integer RFC 8785 canonical JSON represents exactly (IEEE 754 double). Counters above
+# it could not be hashed into the provenance ledger or re-validated, so they are rejected here.
+_JSON_SAFE_INT_MAX = 2**53 - 1
 _M = TypeVar("_M", bound=BaseModel)
 
 DEFAULT_FORMATS: dict[SourceKind, str] = {
@@ -189,7 +191,7 @@ def _parse_iso(text: str, assume_utc: bool) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
-def _opt_int(rec: dict[str, Any], key: str, maximum: int = _INT64_MAX) -> int | None:
+def _opt_int(rec: dict[str, Any], key: str, maximum: int = _JSON_SAFE_INT_MAX) -> int | None:
     v = rec.get(key)
     if v is None:
         return None
