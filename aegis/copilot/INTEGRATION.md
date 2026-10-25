@@ -29,8 +29,9 @@ self.copilot = Copilot(ServiceDataSource(self), llm=copilot_llm)
 
 ## 2. API (`aegis/api/routes.py`)
 
-Suggested routes (roles: `viewer`, `analyst`, `approver`, `admin`; not `integration`). The tenant and user
-come from the verified token, never from the request body.
+Suggested routes, guarded by `R_READ` (`Permission.READ`). The tenant and user come from the verified
+token, never from the request body. Pass the caller's permissions so that raw ledger entries
+(`ledger_query`) are offered only to holders of `Permission.READ_AUDIT`, matching `/ledger/entries`.
 
 ```python
 class CopilotAsk(BaseModel):
@@ -39,29 +40,32 @@ class CopilotAsk(BaseModel):
     session_id: str = Field(default="default", pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$")
 
 @router.post("/copilot/ask")
-def copilot_ask(body: CopilotAsk, p=Depends(require_roles("viewer", "analyst", "approver", "admin"))):
+def copilot_ask(body: CopilotAsk, request: Request, p: Principal = Depends(R_READ)):
+    perms = permissions_of(p)          # aegis.api.rbac: Permission enums of the principal's roles
     try:
-        ans = svc.copilot.ask(tenant_id=p.tenant_id, user_id=p.sub, session_id=body.session_id,
-                              question=body.question)
+        ans = _svc(request).copilot.ask(tenant_id=p.tenant_id, user_id=p.sub, session_id=body.session_id,
+                                        question=body.question, permissions=perms)
     except CopilotInputError as exc:
         raise HTTPException(422, str(exc))
     return ans.model_dump(mode="json") | {"text": ans.text, "cited_refs": ans.cited_refs}
 
 @router.post("/copilot/stream")          # Server-Sent Events
-def copilot_stream(body: CopilotAsk, p=Depends(...)):
-    events = svc.copilot.ask_stream(tenant_id=p.tenant_id, user_id=p.sub, session_id=body.session_id,
-                                    question=body.question)          # raises CopilotInputError eagerly
+def copilot_stream(body: CopilotAsk, request: Request, p: Principal = Depends(R_READ)):
+    events = _svc(request).copilot.ask_stream(tenant_id=p.tenant_id, user_id=p.sub, session_id=body.session_id,
+                                              question=body.question, permissions=permissions_of(p))
+    # ask_stream raises CopilotInputError / CopilotForbidden eagerly, before the response starts
     def sse():
         for ev in events:
             yield f"event: {ev.type}\ndata: {ev.model_dump_json(exclude_none=True)}\n\n"
     return StreamingResponse(sse(), media_type="text/event-stream")
 
 @router.delete("/copilot/sessions/{session_id}")
-def copilot_reset(session_id: str, p=Depends(...)):
-    return {"dropped": svc.copilot.reset_session(tenant_id=p.tenant_id, user_id=p.sub, session_id=session_id)}
+def copilot_reset(session_id: str, request: Request, p: Principal = Depends(R_READ)):
+    return {"dropped": _svc(request).copilot.reset_session(tenant_id=p.tenant_id, user_id=p.sub, session_id=session_id)}
 ```
 
-`ask_stream` validates identity and question before returning the generator, so input errors surface
+`permissions_of` is `aegis.api.rbac.permissions_of` (Permission enums are accepted as-is); map
+`CopilotInputError` to 422 and `CopilotForbidden` to 403. `ask_stream` validates identity and question before returning the generator, so input errors surface
 before the response starts. The generator runs blocking store reads and LLM calls; FastAPI runs a sync
 generator in its threadpool. Apply the existing per-tenant rate limiter to these routes: each question
 can trigger several LLM calls.

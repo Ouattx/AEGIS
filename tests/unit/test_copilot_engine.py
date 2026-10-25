@@ -253,3 +253,11 @@ def test_audit_failure_is_reported_not_hidden(env, monkeypatch):
     events = list(cp.ask_stream(tenant_id=A, user_id="alice", question="overview"))
     assert any(e.type == "notice" and e.code == "audit_failed" for e in events)
     assert events[-1].answer.audit_seq is None
+
+
+def test_rbac_permission_enums_are_accepted(env):
+    from aegis.api.rbac import Permission
+    svc, _ = env
+    ans = make_copilot(svc).ask(tenant_id=A, user_id="adm", question="verify the ledger",
+                                permissions=frozenset({Permission.READ, Permission.READ_AUDIT}))
+    assert "ledger_query" in [t.tool for t in ans.tool_calls]
