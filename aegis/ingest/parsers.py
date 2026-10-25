@@ -428,7 +428,12 @@ def _expand_cpe_document(doc: Any) -> Iterator[tuple[Any, dict[str, Any] | None]
             inherited = {k: v for k, v in _map_json_record(dev, CPE_ALIASES).items()
                          if k in ("device_id", "device_class", "src_ip")}
             for key, rt in (("flows", "flow"), ("dns", "dns")):
-                for item in dev.get(key, []) or []:
+                value = dev.get(key)
+                if value is None:
+                    continue
+                # A malformed section (a scalar or a lone object instead of a list) is passed
+                # through as one record so it is quarantined with its bytes, never a crash.
+                for item in value if isinstance(value, list) else [value]:
                     if isinstance(item, dict):
                         item = {"type": rt, **item}
                     yield item, inherited
