@@ -1,0 +1,39 @@
+# AEGIS OMEGA SHIELD - self-contained demo (synthetic lab data, shadow mode, dev auth).
+#
+#   docker compose -f deploy/docker-compose.demo.yml up --build
+#   open http://localhost:8080  ->  pick a role (analyst, approver, admin, viewer)
+#
+# Every start regenerates the lab corpus, loads the shipped model, runs detection, opens
+# cases (some left INVESTIGATING for a live walkthrough) and verifies the signed ledger.
+# Dev auth hands out tokens to anyone who can reach the port: the port is bound to
+# 127.0.0.1 and must never be exposed. Use deploy/docker-compose.yml for pilots.
+
+name: aegis-demo
+
+services:
+  demo:
+    image: ${AEGIS_IMAGE:-aegis-omega:1.0.0}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["demo", "--data-dir", "/var/lib/aegis/demo", "--host", "0.0.0.0", "--port", "8000",
+              "--devices", "${DEMO_DEVICES:-120}", "--days", "${DEMO_DAYS:-3}", "--log-format", "json"]
+    ports:
+      - "127.0.0.1:${DEMO_PORT:-8080}:8000"
+    volumes:
+      - demo-data:/var/lib/aegis
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=2).status == 200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      start_period: 120s
+      retries: 6
+
+volumes:
+  demo-data: {}

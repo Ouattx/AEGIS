@@ -1,0 +1,38 @@
+# Keep the build context small and free of secrets, caches and local state.
+.git
+.github
+**/__pycache__
+**/*.pyc
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.venv
+.env
+**/.env
+deploy/.env
+*.pem
+*.key
+keys/
+var/
+*.db
+*.db-journal
+.aegis-demo
+aegis-data
+
+# web: dependencies and build output are produced inside the image
+web/node_modules
+web/dist
+web/test-results
+web/*.tsbuildinfo
+
+# not needed at runtime
+docs
+eval
+tests
+sample_data
+deploy
+!deploy/tools
+deploy/tools/__pycache__
+Makefile
+backups

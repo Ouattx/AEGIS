@@ -1,0 +1,19 @@
+{
+ "topology_id": "acme-hosting-inventory-2026-11",
+ "complete": false,
+ "prefixes": ["198.51.100.0/24"],
+ "asns": {
+  "64500": {"provider": "Example CDN", "prefix": "203.0.113.0/25", "kind": "shared_cdn"},
+  "64501": {"provider": "Example VPS", "prefix": "203.0.113.128/25", "kind": "dedicated"},
+  "64510": {"provider": "ACME core services", "prefix": "192.0.2.0/26", "kind": "resolver"}
+ },
+ "hosts": [
+  {"ip": "203.0.113.10", "asn": 64500, "provider": "Example CDN", "kind": "shared_cdn",
+   "hostnames": ["video.streaming.example", "img.shop.example", "cdn.news.example"]},
+  {"ip": "203.0.113.200", "asn": 64501, "provider": "Example VPS", "kind": "dedicated",
+   "hostnames": ["c2-update.example"]},
+  {"ip": "192.0.2.53", "asn": 64510, "provider": "ACME core services", "kind": "resolver",
+   "hostnames": ["resolver1.acme.example"]},
+  {"ip": "198.51.100.7", "kind": "dedicated", "hostnames": ["portal.acme.example"], "shared": false}
+ ]
+}

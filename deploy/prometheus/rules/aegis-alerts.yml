@@ -1,0 +1,120 @@
+# AEGIS OMEGA SHIELD - alerting and recording rules.
+# Thresholds implement docs/SLO.md (spec section 13). Route them to the operator's
+# Alertmanager / NOC tooling; severities: page (wake someone), ticket (next business day).
+groups:
+  - name: aegis-recording
+    interval: 30s
+    rules:
+      - record: aegis:http_requests:rate5m
+        expr: sum by (route, status) (rate(aegis_http_requests_total[5m]))
+      - record: aegis:http_5xx_ratio:rate5m
+        expr: |
+          sum(rate(aegis_http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(aegis_http_requests_total[5m])), 1e-9)
+      - record: aegis:http_latency_p95:5m
+        expr: histogram_quantile(0.95, sum by (le, route) (rate(aegis_http_request_duration_seconds_bucket[5m])))
+      - record: aegis:ingest_valid_ratio:rate1h
+        expr: |
+          sum(rate(aegis_ingest_records_total{outcome="accepted"}[1h]))
+            / clamp_min(sum(rate(aegis_ingest_records_total{outcome=~"accepted|quarantined"}[1h])), 1e-9)
+      - record: aegis:ready:avg1h
+        expr: avg_over_time(aegis_ready[1h])
+
+  - name: aegis-availability
+    rules:
+      - alert: AegisApiDown
+        expr: up{job="aegis-api"} == 0
+        for: 2m
+        labels: {severity: page, slo: availability}
+        annotations:
+          summary: AEGIS API is not reachable by Prometheus
+          runbook: docs/runbooks/incident.md#api-down
+      - alert: AegisNotReady
+        expr: aegis_ready == 0
+        for: 3m
+        labels: {severity: page, slo: availability}
+        annotations:
+          summary: AEGIS reports not ready (database or startup checks failing)
+          runbook: docs/runbooks/incident.md#not-ready
+      - alert: AegisHigh5xxRatio
+        expr: aegis:http_5xx_ratio:rate5m > 0.01
+        for: 10m
+        labels: {severity: page, slo: availability}
+        annotations:
+          summary: More than 1% of AEGIS API requests fail with 5xx
+          runbook: docs/runbooks/incident.md#errors
+      - alert: AegisAvailabilityBudgetBurn
+        # 99.5% monthly target: a 1h ratio below 0.986 burns the budget 2.8x faster than allowed.
+        expr: aegis:ready:avg1h < 0.986
+        for: 5m
+        labels: {severity: ticket, slo: availability}
+        annotations:
+          summary: Availability error budget burning fast (1h readiness below 98.6%)
+          runbook: docs/SLO.md#availability
+
+  - name: aegis-ingestion
+    rules:
+      - alert: AegisIngestValidRatioLow
+        # SLO: >= 99.9% of submitted records are valid and accepted (quarantine is visible, not silent).
+        expr: aegis:ingest_valid_ratio:rate1h < 0.999 and sum(rate(aegis_ingest_records_total[1h])) > 0
+        for: 15m
+        labels: {severity: ticket, slo: ingestion}
+        annotations:
+          summary: Ingest valid-record ratio below 99.9% over 1h (check the quarantine and collector config)
+          runbook: docs/runbooks/incident.md#ingest-quarantine
+      - alert: AegisIngestStalled
+        expr: sum(increase(aegis_ingest_records_total[2h])) == 0 and on() (max(up{job="aegis-api"}) == 1)
+        for: 30m
+        labels: {severity: ticket, slo: ingestion}
+        annotations:
+          summary: No telemetry ingested for 2h (collector, transfer or authorization problem)
+          runbook: docs/runbooks/incident.md#ingest-stalled
+
+  - name: aegis-safety
+    rules:
+      - alert: AegisAuditWriteFailure
+        expr: increase(aegis_audit_write_failures_total[5m]) > 0
+        labels: {severity: page, slo: provenance}
+        annotations:
+          summary: Audit records could not be written to the provenance ledger
+          runbook: docs/runbooks/incident.md#audit-failure
+      - alert: AegisEnforcementApplied
+        # Shadow pilots must show zero live enforcement. In an approved active deployment, keep this
+        # alert as an informational ticket so every live action is seen by the NOC.
+        expr: increase(aegis_actions_total{step="execute", outcome="applied"}[10m]) > 0
+        labels: {severity: page, slo: unapproved-enforcement}
+        annotations:
+          summary: An enforcement action was applied to the network
+          runbook: docs/runbooks/rollback.md
+      - alert: AegisRollbackFailed
+        # A refused (409) rollback request means the action was not live or the adapter could not restore
+        # the prior state; either way a human must confirm what is enforced right now.
+        expr: |
+          sum(increase(aegis_http_requests_total{route="/api/v1/actions/{action_id}/rollback", status="409"}[10m])) > 0
+            or sum(increase(aegis_actions_total{step="rollback", outcome="rollback_failed"}[10m])) > 0
+        labels: {severity: page, slo: unapproved-enforcement}
+        annotations:
+          summary: A rollback was refused or failed; enforcement may still be live
+          runbook: docs/runbooks/rollback.md#rollback-failed
+      - alert: AegisAuthFailureSpike
+        expr: sum(increase(aegis_auth_failures_total[10m])) > 50
+        labels: {severity: ticket, slo: security}
+        annotations:
+          summary: Unusual number of rejected authentications (misconfigured client or credential stuffing)
+          runbook: docs/runbooks/incident.md#auth-failures
+      - alert: AegisRbacDenialSpike
+        expr: sum(increase(aegis_rbac_denied_total[10m])) > 20
+        labels: {severity: ticket, slo: security}
+        annotations:
+          summary: Many requests denied by RBAC (possible insider misuse or wrong role mapping)
+          runbook: docs/runbooks/incident.md#rbac-denials
+
+  - name: aegis-latency
+    rules:
+      - alert: AegisApiLatencyHigh
+        expr: max(aegis:http_latency_p95:5m{route!~".*/ingest.*|.*/reports/.*|.*/investigate"}) > 2
+        for: 15m
+        labels: {severity: ticket, slo: latency}
+        annotations:
+          summary: p95 latency of interactive API routes above 2s
+          runbook: docs/runbooks/incident.md#latency

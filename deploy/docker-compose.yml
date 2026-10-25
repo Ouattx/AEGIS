@@ -1,0 +1,208 @@
+# AEGIS OMEGA SHIELD - single-host on-prem / sovereign deployment.
+#
+#   cp deploy/.env.example deploy/.env      # then fill in every value marked REQUIRED
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# Profiles (add with --profile NAME, combine freely):
+#   (none)       postgres + api (API, analyst console, shipped detection model)
+#   monitoring   prometheus (scrapes /metrics with the metrics token, evaluates SLO alerts)
+#                + grafana (provisioned "AEGIS SHIELD - Operations" dashboard)
+#   bus          redpanda (Kafka API) as a durable buffer in front of the ingest API; see
+#                docs/OPERATOR_INTEGRATION.md "Buffered collection" for what it is and is not
+#
+# The sales/evaluation demo (synthetic data, dev auth) is a separate file that needs no
+# secrets: docker compose -f deploy/docker-compose.demo.yml up --build
+#
+# Security posture: the api container runs as uid 10001 with a read-only root file system,
+# all Linux capabilities dropped and no-new-privileges. Only the console/API port is
+# published, on 127.0.0.1 unless AEGIS_BIND says otherwise; put the operator's TLS reverse
+# proxy or load balancer in front of it (see docs/INSTALL.md).
+
+name: aegis
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  init: true
+  tmpfs:
+    - /tmp:size=256m,mode=1777
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: {max-size: "50m", max-file: "5"}
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aegis}
+      POSTGRES_USER: ${POSTGRES_USER:-aegis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --data-checksums"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [backend]
+    shm_size: 256m
+    <<: *logging
+
+  api:
+    image: ${AEGIS_IMAGE:-aegis-omega:1.0.0}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Explicit allow-list: only AEGIS_* settings reach the API process (no Grafana or bus secrets).
+    environment:
+      AEGIS_DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-aegis}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@postgres:5432/${POSTGRES_DB:-aegis}"
+      AEGIS_DATA_DIR: "/var/lib/aegis"
+      AEGIS_METRICS_TOKEN: "${AEGIS_METRICS_TOKEN:?set AEGIS_METRICS_TOKEN in deploy/.env}"
+      AEGIS_ENV: "${AEGIS_ENV:-production}"
+      AEGIS_AUTH_MODE: "${AEGIS_AUTH_MODE:-oidc}"
+      AEGIS_PSEUDONYM_MASTER_KEY: "${AEGIS_PSEUDONYM_MASTER_KEY:?set AEGIS_PSEUDONYM_MASTER_KEY in deploy/.env}"
+      AEGIS_ENFORCEMENT_ADAPTER: "${AEGIS_ENFORCEMENT_ADAPTER:-dryrun}"
+      AEGIS_LLM_ENABLED: "${AEGIS_LLM_ENABLED:-false}"
+      AEGIS_OIDC_ISSUER: "${AEGIS_OIDC_ISSUER:-}"
+      AEGIS_OIDC_AUDIENCE: "${AEGIS_OIDC_AUDIENCE:-}"
+      AEGIS_OIDC_JWKS_URL: "${AEGIS_OIDC_JWKS_URL:-}"
+      AEGIS_OIDC_TENANT_CLAIM: "${AEGIS_OIDC_TENANT_CLAIM:-}"
+      AEGIS_OIDC_ROLES_CLAIM: "${AEGIS_OIDC_ROLES_CLAIM:-}"
+      AEGIS_OIDC_ALGORITHMS: "${AEGIS_OIDC_ALGORITHMS:-}"
+      AEGIS_JWT_LEEWAY_S: "${AEGIS_JWT_LEEWAY_S:-}"
+      AEGIS_JWKS_CACHE_TTL_S: "${AEGIS_JWKS_CACHE_TTL_S:-}"
+      AEGIS_MODEL_REQUIRE_SIGNATURE: "${AEGIS_MODEL_REQUIRE_SIGNATURE:-}"
+      AEGIS_LEDGER_KEY_ID: "${AEGIS_LEDGER_KEY_ID:-}"
+      AEGIS_RPZ_ZONE_PATH: "${AEGIS_RPZ_ZONE_PATH:-}"
+      AEGIS_RPZ_RELOAD_COMMAND: "${AEGIS_RPZ_RELOAD_COMMAND:-}"
+      AEGIS_WEBHOOK_URL: "${AEGIS_WEBHOOK_URL:-}"
+      AEGIS_WEBHOOK_SECRET: "${AEGIS_WEBHOOK_SECRET:-}"
+      AEGIS_RATE_LIMIT_RPS: "${AEGIS_RATE_LIMIT_RPS:-}"
+      AEGIS_RATE_LIMIT_BURST: "${AEGIS_RATE_LIMIT_BURST:-}"
+      AEGIS_MAX_INGEST_BYTES: "${AEGIS_MAX_INGEST_BYTES:-}"
+      AEGIS_MAX_PAGE_SIZE: "${AEGIS_MAX_PAGE_SIZE:-}"
+      AEGIS_CORS_ORIGINS: "${AEGIS_CORS_ORIGINS:-}"
+      AEGIS_LOG_LEVEL: "${AEGIS_LOG_LEVEL:-}"
+      AEGIS_LOG_FORMAT: "${AEGIS_LOG_FORMAT:-}"
+      AEGIS_SWEEP_INTERVAL_S: "${AEGIS_SWEEP_INTERVAL_S:-}"
+      AEGIS_BUS_MAX_QUEUE: "${AEGIS_BUS_MAX_QUEUE:-}"
+      AEGIS_BUS_PER_TENANT_QUOTA: "${AEGIS_BUS_PER_TENANT_QUOTA:-}"
+      AEGIS_FORWARDED_ALLOW_IPS: "${AEGIS_FORWARDED_ALLOW_IPS:-127.0.0.1}"
+      AEGIS_LLM_MODEL: "${AEGIS_LLM_MODEL:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+    command: ["serve", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${AEGIS_BIND:-127.0.0.1}:${AEGIS_PORT:-8000}:8000"
+    volumes:
+      - aegis-data:/var/lib/aegis
+    networks: [backend, frontend]
+    <<: [*hardening, *logging]
+
+  # ------------------------------------------------------------------ monitoring profile
+  prometheus:
+    profiles: [monitoring]
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.5.0}
+    restart: unless-stopped
+    environment:
+      AEGIS_METRICS_TOKEN: ${AEGIS_METRICS_TOKEN:?set AEGIS_METRICS_TOKEN in deploy/.env}
+    # The bearer token is written to tmpfs at start so it never sits in a config file.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        umask 077 && printf '%s' "$$AEGIS_METRICS_TOKEN" > /tmp/aegis_metrics_token &&
+        exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml
+        --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+        --web.listen-address=0.0.0.0:9090
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${MONITORING_BIND:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
+    depends_on: [api]
+    networks: [backend, frontend]
+    <<: [*hardening, *logging]
+
+  grafana:
+    profiles: [monitoring]
+    image: ${GRAFANA_IMAGE:-grafana/grafana:12.1.1}
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in deploy/.env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_SECURITY_COOKIE_SECURE: ${GRAFANA_COOKIE_SECURE:-false}
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/aegis-shield.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${MONITORING_BIND:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
+    depends_on: [prometheus]
+    networks: [backend, frontend]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /var/log/grafana:size=64m,uid=472,gid=0,mode=0750
+    <<: *logging
+
+  # ------------------------------------------------------------------ bus profile
+  redpanda:
+    profiles: [bus]
+    image: ${REDPANDA_IMAGE:-redpandadata/redpanda:v25.2.2}
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=1G
+      - --overprovisioned
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://${REDPANDA_ADVERTISE_HOST:-localhost}:19092
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    ports:
+      - "${BUS_BIND:-127.0.0.1}:19092:19092"
+    networks: [backend, frontend]
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    <<: *logging
+
+networks:
+  # backend: database and internal scraping only, no route to the outside world
+  backend:
+    internal: true
+  # frontend: published ports and egress (OIDC discovery/JWKS, optional LLM endpoint)
+  frontend: {}
+
+volumes:
+  pgdata: {}
+  aegis-data: {}
+  prometheus-data: {}
+  grafana-data: {}
+  redpanda-data: {}

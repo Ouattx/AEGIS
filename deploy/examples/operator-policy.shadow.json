@@ -1,0 +1,18 @@
+{
+ "policy_id": "acme-shadow-pilot-2026q4",
+ "tenant_id": "acme",
+ "mode": "shadow",
+ "allowed_actions": ["dns_sinkhole", "notify_subscriber"],
+ "max_targets_per_action": 1,
+ "max_ttl_hours": 24,
+ "approved_scope": {
+  "max_entities": 1,
+  "legal_bases": ["operator_tos_security_clause"],
+  "max_affected_entities": 5
+ },
+ "legal_signoff_ref": null,
+ "valid_from": "2026-11-01T00:00:00Z",
+ "valid_until": "2027-01-31T23:59:59Z",
+ "signer_key_id": "acme-policy-2026",
+ "signature": ""
+}

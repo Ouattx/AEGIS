@@ -43,3 +43,20 @@ include = ["aegis*"]
 testpaths = ["tests"]
 pythonpath = ["."]
 markers = ["safety: spec section 15 mandatory safety tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = ["web", "eval/out"]
+
+[tool.ruff.lint]
+# Correctness-focused gate enforced in CI: pyflakes, pycodestyle errors/warnings, bugbear,
+# and naive-datetime calls (all timestamps must be timezone-aware UTC).
+select = ["E4", "E7", "E9", "F", "W", "B", "DTZ003", "DTZ005"]
+# E741: short names like `l` are used deliberately in numeric code.
+# B008: FastAPI dependency injection uses calls in argument defaults by design.
+# B905: zip() strictness is decided per call site.
+ignore = ["E741", "B008", "B905"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E714"]

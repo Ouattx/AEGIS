@@ -1,0 +1,100 @@
+# Signed release of the AEGIS OMEGA SHIELD container image.
+#
+# On a version tag (v1.2.3) this workflow:
+#   1. builds the image from the tagged commit and pushes it to GHCR by tag and digest
+#   2. generates a CycloneDX SBOM of the pushed image (syft)
+#   3. signs the image digest with Sigstore cosign (keyless, GitHub OIDC identity)
+#   4. attaches the SBOM as a signed cosign attestation and a GitHub build-provenance attestation
+#   5. publishes the SBOM and the digest as release assets
+#
+# Operators verify before deploying (docs/INSTALL.md "Verify the image"):
+#   cosign verify ghcr.io/<org>/aegis-omega@sha256:<digest> \
+#     --certificate-identity-regexp 'https://github.com/<org>/<repo>/.github/workflows/release.yml@refs/tags/v.*' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write        # release assets
+      packages: write        # push to GHCR
+      id-token: write        # keyless signing and provenance
+      attestations: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/aegis-omega
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches the package version
+        run: |
+          v=$(python3 -c "import re,pathlib;print(re.search(r'^version = \"([^\"]+)\"', pathlib.Path('pyproject.toml').read_text(), re.M).group(1))")
+          test "v$v" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != pyproject version $v"; exit 1; }
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            REVISION=${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Image SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: cyclonedx-json
+          output-file: sbom-image.cdx.json
+          upload-artifact: false
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign the image and attest the SBOM (keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+          cosign attest --yes --type cyclonedx --predicate sbom-image.cdx.json "${IMAGE}@${DIGEST}"
+          echo "${IMAGE}@${DIGEST}" > image-digest.txt
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || gh release create "${GITHUB_REF_NAME}" --verify-tag --title "${GITHUB_REF_NAME}" --notes "Signed image: $(cat image-digest.txt)"
+          gh release upload "${GITHUB_REF_NAME}" sbom-image.cdx.json image-digest.txt --clobber

@@ -1,0 +1,13 @@
+# Loads the AEGIS dashboards shipped in deploy/grafana/dashboards (read-only in the UI).
+apiVersion: 1
+providers:
+  - name: aegis
+    orgId: 1
+    folder: AEGIS OMEGA
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

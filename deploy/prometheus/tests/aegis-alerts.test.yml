@@ -1,0 +1,121 @@
+# promtool unit tests for the AEGIS alert rules:
+#   promtool test rules deploy/prometheus/tests/aegis-alerts.test.yml
+rule_files:
+  - ../rules/aegis-alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: live enforcement in shadow mode pages immediately
+    interval: 1m
+    input_series:
+      - series: 'aegis_actions_total{step="execute", outcome="applied", job="aegis-api"}'
+        values: "0 0 0 1 1 1"
+      - series: 'aegis_actions_total{step="execute", outcome="dry_run", job="aegis-api"}'
+        values: "0 1 2 3 4 5"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: AegisEnforcementApplied
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: AegisEnforcementApplied
+        exp_alerts:
+          - exp_labels: {severity: page, slo: unapproved-enforcement, step: execute, outcome: applied, job: aegis-api}
+            exp_annotations:
+              summary: An enforcement action was applied to the network
+              runbook: docs/runbooks/rollback.md
+
+  - name: audit ledger write failure pages
+    interval: 1m
+    input_series:
+      - series: 'aegis_audit_write_failures_total{job="aegis-api"}'
+        values: "0 0 1 1"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: AegisAuditWriteFailure
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: AegisAuditWriteFailure
+        exp_alerts:
+          - exp_labels: {severity: page, slo: provenance, job: aegis-api}
+            exp_annotations:
+              summary: Audit records could not be written to the provenance ledger
+              runbook: docs/runbooks/incident.md#audit-failure
+
+  - name: not ready for three minutes pages
+    interval: 1m
+    input_series:
+      - series: 'aegis_ready{job="aegis-api"}'
+        values: "1 1 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: AegisNotReady
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: AegisNotReady
+        exp_alerts:
+          - exp_labels: {severity: page, slo: availability, job: aegis-api}
+            exp_annotations:
+              summary: AEGIS reports not ready (database or startup checks failing)
+              runbook: docs/runbooks/incident.md#not-ready
+
+  - name: ingest valid ratio below 99.9 percent opens a ticket
+    interval: 1m
+    input_series:
+      - series: 'aegis_ingest_records_total{outcome="accepted", job="aegis-api"}'
+        values: "0+1000x90"
+      - series: 'aegis_ingest_records_total{outcome="quarantined", job="aegis-api"}'
+        values: "0+5x90"
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: AegisIngestValidRatioLow
+        exp_alerts:
+          - exp_labels: {severity: ticket, slo: ingestion}
+            exp_annotations:
+              summary: Ingest valid-record ratio below 99.9% over 1h (check the quarantine and collector config)
+              runbook: docs/runbooks/incident.md#ingest-quarantine
+
+  - name: healthy ingest does not alert
+    interval: 1m
+    input_series:
+      - series: 'aegis_ingest_records_total{outcome="accepted", job="aegis-api"}'
+        values: "0+1000x90"
+      - series: 'aegis_ingest_records_total{outcome="quarantined", job="aegis-api"}'
+        values: "0+0x90"
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: AegisIngestValidRatioLow
+        exp_alerts: []
+
+  - name: recording rule computes the valid ratio
+    interval: 1m
+    input_series:
+      - series: 'aegis_ingest_records_total{outcome="accepted", job="aegis-api"}'
+        values: "0+3x90"
+      - series: 'aegis_ingest_records_total{outcome="quarantined", job="aegis-api"}'
+        values: "0+1x90"
+    promql_expr_test:
+      - expr: aegis:ingest_valid_ratio:rate1h
+        eval_time: 70m
+        exp_samples:
+          - labels: 'aegis:ingest_valid_ratio:rate1h'
+            value: 0.75
+
+  - name: refused rollback pages
+    interval: 1m
+    input_series:
+      - series: 'aegis_http_requests_total{method="POST", route="/api/v1/actions/{action_id}/rollback", status="409", job="aegis-api"}'
+        values: "0 0 1 1"
+      - series: 'aegis_http_requests_total{method="POST", route="/api/v1/actions/{action_id}/rollback", status="200", job="aegis-api"}'
+        values: "0 1 2 3"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: AegisRollbackFailed
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: AegisRollbackFailed
+        exp_alerts:
+          - exp_labels: {severity: page, slo: unapproved-enforcement}
+            exp_annotations:
+              summary: A rollback was refused or failed; enforcement may still be live
+              runbook: docs/runbooks/rollback.md#rollback-failed

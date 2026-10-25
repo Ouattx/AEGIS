@@ -1,0 +1,41 @@
+{
+ "schema": "aegis.ioc_bundle/1",
+ "bundle_id": "acme-soc-feed-20261101",
+ "version": "2026.11.01-1",
+ "issuer": "acme-soc",
+ "issued_at": "2026-11-01T06:00:00Z",
+ "indicators": [
+  {
+   "indicator_id": "acme-ind-0001",
+   "type": "domain",
+   "value": "c2-update.example",
+   "verdict": "malicious",
+   "threat_label": "c2_beaconing",
+   "malware_family": "badbox2",
+   "confidence": 0.9,
+   "first_seen": "2026-10-20T00:00:00Z",
+   "last_seen": "2026-10-31T00:00:00Z",
+   "expires_at": "2026-12-01T00:00:00Z",
+   "source": "feed:acme-soc",
+   "source_group": "grp:acme-soc",
+   "tags": ["c2", "dedicated_hosting"],
+   "description": "TV-box C2 domain observed by the operator SOC"
+  },
+  {
+   "indicator_id": "acme-ind-0002",
+   "type": "ip",
+   "value": "203.0.113.77",
+   "verdict": "malicious",
+   "threat_label": "residential_proxy",
+   "malware_family": null,
+   "confidence": 0.7,
+   "first_seen": "2026-10-25T00:00:00Z",
+   "last_seen": "2026-10-31T00:00:00Z",
+   "expires_at": "2026-11-15T00:00:00Z",
+   "source": "feed:partner-cert",
+   "source_group": "grp:partner-cert",
+   "tags": ["proxy_backconnect"],
+   "description": "Proxy back-connect server reported by a partner CERT"
+  }
+ ]
+}
