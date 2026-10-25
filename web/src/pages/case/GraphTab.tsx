@@ -8,7 +8,7 @@ import { layout, mergeViews, type VNode } from "../../lib/graph";
 const W = 900;
 const H = 520;
 
-/** ATLAS neighbourhood of the indicators and destinations cited by the case evidence. */
+/** CONSTELLATION neighbourhood of the indicators and destinations cited by the case evidence. */
 export function GraphTab({ seeds }: { seeds: string[] }) {
   const client = useClient();
   const [views, setViews] = useState<GraphView[] | null>(null);
@@ -47,7 +47,7 @@ export function GraphTab({ seeds }: { seeds: string[] }) {
   };
 
   if (!seeds.length) return <Empty>This case cites no indicators or destinations to place in the infrastructure graph.</Empty>;
-  if (!views) return <Loading label="Querying ATLAS neighbourhood" />;
+  if (!views) return <Loading label="Querying CONSTELLATION neighbourhood" />;
   if (!graph) return <Empty>None of the cited indicators ({seeds.join(", ")}) are in the tenant graph yet.</Empty>;
 
   return (

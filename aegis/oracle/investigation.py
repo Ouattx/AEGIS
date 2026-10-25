@@ -647,14 +647,14 @@ class _Run:
         if not isinstance(graph, dict):
             return notes, shared
         if not graph.get("available"):
-            return ["ATLAS graph not configured; no infrastructure context available."], shared
+            return ["CONSTELLATION graph not configured; no infrastructure context available."], shared
         writer = self.ts.scope(AgentName.THREAT_CORRELATION, self.case).writer()
         for row in graph.get("indicators", [])[:20]:
             if not isinstance(row, dict):
                 continue
             ind = sanitize_text(row.get("indicator"), 253)
             if not row.get("known"):
-                notes.append(f"{ind}: not present in ATLAS (novel infrastructure or no telemetry).")
+                notes.append(f"{ind}: not present in CONSTELLATION (novel infrastructure or no telemetry).")
                 continue
             if row.get("shared_hosting"):
                 shared.add(ind)

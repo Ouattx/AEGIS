@@ -34,7 +34,7 @@ Guards (all deterministic; no model output is consulted):
 
 Agents (actors ``agent:*``) can never change case state. Every transition, and
 case creation, is written to the provenance ledger before the case document is
-updated; major transitions also anchor ledger (and ATLAS, if attached) snapshots.
+updated; major transitions also anchor ledger (and CONSTELLATION, if attached) snapshots.
 """
 from __future__ import annotations
 
@@ -269,12 +269,12 @@ class CaseService:
     """Case lifecycle with spec section 6 guards. All operations are tenant-scoped.
 
     ``keyring`` holds the trusted operator-policy signing keys; without it, the
-    ``EXECUTED`` guard always fails closed. ``atlas`` (optional) gets a graph
+    ``EXECUTED`` guard always fails closed. ``constellation`` (optional) gets a graph
     snapshot on major transitions.
     """
 
     def __init__(self, docstore: DocStore, evidence_store: EvidenceStore, ledger: Ledger, *,
-                 keyring: KeyRing | None = None, atlas: Any | None = None,
+                 keyring: KeyRing | None = None, constellation: Any | None = None,
                  clock: Callable[[], datetime] | None = None,
                  live_execution_probe: Callable[[str, str], list[str]] | None = None):
         self._docs = docstore
@@ -284,7 +284,7 @@ class CaseService:
         self._evidence = evidence_store
         self._ledger = ledger
         self._keyring = keyring
-        self._atlas = atlas
+        self._constellation = constellation
         self._clock = clock or _now
         self._locks: dict[tuple[str, str], threading.Lock] = {}
         self._locks_guard = threading.Lock()
@@ -587,8 +587,8 @@ class CaseService:
                 snap = record_snapshot(tenant_id, self._ledger, reason=f"case_transition:{to_state.value}",
                                        subject_id=case_id)
                 update["snapshot_hash"] = snap["snapshot_hash"]
-                if self._atlas is not None:
-                    self._atlas.record_snapshot(tenant_id, reason=f"case_transition:{to_state.value}",
+                if self._constellation is not None:
+                    self._constellation.record_snapshot(tenant_id, reason=f"case_transition:{to_state.value}",
                                                 subject_id=case_id)
             case = case.model_copy(update=update, deep=True)
             self._docs.put(case)

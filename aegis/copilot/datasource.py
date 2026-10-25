@@ -222,7 +222,7 @@ class ServiceDataSource:
 
     def node_exists(self, tenant_id: str, node_id: str) -> bool:
         try:
-            return self._svc.atlas.get_node(tenant_id, node_id) is not None
+            return self._svc.constellation.get_node(tenant_id, node_id) is not None
         except ValueError:
             return False
 

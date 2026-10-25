@@ -28,7 +28,7 @@ _LABEL_KB: dict[str, tuple[HypothesisTemplate, ...]] = {
             "push_keepalive", "Legitimate push-notification or keep-alive heartbeat",
             "Messaging, push and smart-home services hold long-lived connections with fixed "
             "heartbeat intervals that look periodic.",
-            ("Check whether the destination resolves to a known push/CDN provider in ATLAS",
+            ("Check whether the destination resolves to a known push/CDN provider in CONSTELLATION",
              "Compare the interval with the device-class benign baseline",
              "Look for matching heartbeats on many unrelated devices of the same class")),
         HypothesisTemplate(
@@ -50,7 +50,7 @@ _LABEL_KB: dict[str, tuple[HypothesisTemplate, ...]] = {
             "Indicators expire; IPs get reassigned and shared CDN edges host many tenants, so an "
             "IOC hit on such an address may reflect someone else's traffic.",
             ("Check indicator first_seen/last_seen/expires_at",
-             "Check co-tenant count of the destination in ATLAS",
+             "Check co-tenant count of the destination in CONSTELLATION",
              "Look for an operator allowlist or contradicting feed")),
     ),
     "dga_activity": (

@@ -100,8 +100,8 @@ def test_demo_graph_and_iocs(demo):
     assert topo["complete"] is True and topo["hosts"] > 0
     policies = client.get("/api/v1/policies", headers=h).json()["items"]
     assert policies[0]["signature_valid"] is True and policies[0]["policy"]["mode"] == "shadow"
-    edges = svc.atlas.edges(T)
-    assert edges, "resolver answers should populate ATLAS"
+    edges = svc.constellation.edges(T)
+    assert edges, "resolver answers should populate CONSTELLATION"
     node = edges[0].src
     r = client.get(f"/api/v1/graph/{node}", headers=h)
     assert r.status_code == 200 and r.json()["degree"] >= 1

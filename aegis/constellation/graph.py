@@ -1,16 +1,16 @@
-"""ATLAS: tenant-scoped temporal infrastructure graph (spec section 5).
+"""CONSTELLATION: tenant-scoped temporal infrastructure graph (spec section 5).
 
 Data model
 ----------
 The graph is *bitemporal* and append-only:
 
 * ``observed_at`` (valid time): when the relationship was seen in the world;
-* ``recorded_at`` (knowledge time): when ATLAS learned about it.
+* ``recorded_at`` (knowledge time): when CONSTELLATION learned about it.
 
 Every upsert writes one immutable *observation* row keyed by
 ``(tenant_id, edge_id, provenance_id)``. Re-delivering the same provenance id is a
 no-op (idempotent event consumer); re-delivering it with different content is a
-:class:`AtlasConflictError` because it indicates a producer bug or tampering.
+:class:`ConstellationConflictError` because it indicates a producer bug or tampering.
 Edge attributes (``first_seen``, ``last_seen``, provenance ids, evidence grade,
 independent-source count, TTL expiry) are always *derived* from the observations
 visible at the query time, so "as known at T" (``as_of=T``) only folds observations
@@ -20,7 +20,7 @@ hash.
 
 Enforcement eligibility
 -----------------------
-ATLAS never authorizes anything; it only labels edges so downstream code (MIRROR,
+CONSTELLATION never authorizes anything; it only labels edges so downstream code (MIRROR,
 ORACLE guards) can refuse weak links. An edge is ``enforcement_eligible`` only if
 all of these hold:
 
@@ -35,7 +35,7 @@ prediction results are always flagged ``investigative_only``.
 
 Overlinking guard
 -----------------
-:meth:`Atlas.related` traverses the graph for investigation context but does not
+:meth:`Constellation.related` traverses the graph for investigation context but does not
 expand through hub nodes (e.g. shared CDN edges serving hundreds of tenants),
 co-hosting edges or candidate edges, so one shared IP cannot pull an entire
 CDN customer base into a case.
@@ -70,8 +70,8 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
 from aegis.contracts.canonical import canonical_bytes, sha256_hex
 from aegis.storage.db import Base
 
-ATLAS_SNAPSHOT_VERSION = 1
-ATLAS_SNAPSHOT_ENTRY_TYPE = "atlas_snapshot"
+CONSTELLATION_SNAPSHOT_VERSION = 1
+CONSTELLATION_SNAPSHOT_ENTRY_TYPE = "constellation_snapshot"
 
 # ----------------------------------------------------------------------------- enums
 
@@ -137,11 +137,11 @@ DEFAULT_TTL_HOURS: dict[EdgeType, int] = {
 MAX_TTL_HOURS = 24 * 365 * 2
 
 
-class AtlasError(RuntimeError):
-    """Base class for ATLAS failures."""
+class ConstellationError(RuntimeError):
+    """Base class for CONSTELLATION failures."""
 
 
-class AtlasConflictError(AtlasError):
+class ConstellationConflictError(ConstellationError):
     """Same provenance id re-delivered with different content."""
 
 
@@ -234,18 +234,18 @@ def _edge_id(tenant_id: str, src: str, dst: str, edge_type: EdgeType, candidate:
 # ----------------------------------------------------------------------------- tables
 
 
-class AtlasNodeRow(Base):
-    __tablename__ = "atlas_nodes"
+class ConstellationNodeRow(Base):
+    __tablename__ = "constellation_nodes"
     tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     node_id: Mapped[str] = mapped_column(String(320), primary_key=True)
     node_type: Mapped[str] = mapped_column(String(32), nullable=False)
     value: Mapped[str] = mapped_column(String(300), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    __table_args__ = (Index("ix_atlas_nodes_tenant_type", "tenant_id", "node_type"),)
+    __table_args__ = (Index("ix_constellation_nodes_tenant_type", "tenant_id", "node_type"),)
 
 
-class AtlasNodeObservationRow(Base):
-    __tablename__ = "atlas_node_observations"
+class ConstellationNodeObservationRow(Base):
+    __tablename__ = "constellation_node_observations"
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"),
                                     primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -255,13 +255,13 @@ class AtlasNodeObservationRow(Base):
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     attrs: Mapped[dict] = mapped_column(JSON, nullable=False)
     __table_args__ = (
-        UniqueConstraint("tenant_id", "node_id", "provenance_id", name="uq_atlas_node_obs"),
-        Index("ix_atlas_node_obs_node", "tenant_id", "node_id"),
+        UniqueConstraint("tenant_id", "node_id", "provenance_id", name="uq_constellation_node_obs"),
+        Index("ix_constellation_node_obs_node", "tenant_id", "node_id"),
     )
 
 
-class AtlasEdgeRow(Base):
-    __tablename__ = "atlas_edges"
+class ConstellationEdgeRow(Base):
+    __tablename__ = "constellation_edges"
     tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     edge_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     src: Mapped[str] = mapped_column(String(320), nullable=False)
@@ -270,13 +270,13 @@ class AtlasEdgeRow(Base):
     candidate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     __table_args__ = (
-        Index("ix_atlas_edges_src", "tenant_id", "src"),
-        Index("ix_atlas_edges_dst", "tenant_id", "dst"),
+        Index("ix_constellation_edges_src", "tenant_id", "src"),
+        Index("ix_constellation_edges_dst", "tenant_id", "dst"),
     )
 
 
-class AtlasEdgeObservationRow(Base):
-    __tablename__ = "atlas_edge_observations"
+class ConstellationEdgeObservationRow(Base):
+    __tablename__ = "constellation_edge_observations"
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"),
                                     primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -289,13 +289,13 @@ class AtlasEdgeObservationRow(Base):
     ttl_hours: Mapped[int] = mapped_column(Integer, nullable=False)
     attrs: Mapped[dict] = mapped_column(JSON, nullable=False)
     __table_args__ = (
-        UniqueConstraint("tenant_id", "edge_id", "provenance_id", name="uq_atlas_edge_obs"),
-        Index("ix_atlas_edge_obs_edge", "tenant_id", "edge_id"),
+        UniqueConstraint("tenant_id", "edge_id", "provenance_id", name="uq_constellation_edge_obs"),
+        Index("ix_constellation_edge_obs_edge", "tenant_id", "edge_id"),
     )
 
 
-class AtlasSnapshotRow(Base):
-    __tablename__ = "atlas_snapshots"
+class ConstellationSnapshotRow(Base):
+    __tablename__ = "constellation_snapshots"
     tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     snapshot_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -305,7 +305,7 @@ class AtlasSnapshotRow(Base):
     reason: Mapped[str] = mapped_column(String(128), nullable=False)
     subject_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    __table_args__ = (Index("ix_atlas_snapshots_tenant_asof", "tenant_id", "as_of"),)
+    __table_args__ = (Index("ix_constellation_snapshots_tenant_asof", "tenant_id", "as_of"),)
 
 
 # ----------------------------------------------------------------------------- views
@@ -315,7 +315,7 @@ class _View(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class AtlasNode(_View):
+class ConstellationNode(_View):
     tenant_id: str
     node_id: str
     node_type: NodeType
@@ -326,7 +326,7 @@ class AtlasNode(_View):
     provenance_ids: list[str] = Field(default_factory=list)
 
 
-class AtlasEdge(_View):
+class ConstellationEdge(_View):
     tenant_id: str
     edge_id: str
     src: str
@@ -353,7 +353,7 @@ class Neighbor(_View):
     node_id: str
     node_type: NodeType
     direction: Literal["out", "in"]
-    edge: AtlasEdge
+    edge: ConstellationEdge
 
 
 class RelatedNode(_View):
@@ -385,7 +385,7 @@ class CandidateLink(_View):
 class _Obs:
     __slots__ = ("provenance_id", "observed_at", "recorded_at", "grade", "group", "ttl", "attrs")
 
-    def __init__(self, row: AtlasEdgeObservationRow):
+    def __init__(self, row: ConstellationEdgeObservationRow):
         self.provenance_id = row.provenance_id
         self.observed_at = _from_db(row.observed_at)
         self.recorded_at = _from_db(row.recorded_at)
@@ -395,7 +395,7 @@ class _Obs:
         self.attrs = row.attrs or {}
 
 
-class Atlas:
+class Constellation:
     """Temporal graph service. Every method is scoped to one tenant.
 
     ``ledger`` (optional, :class:`aegis.provenance.ledger.Ledger`) anchors recorded
@@ -426,7 +426,7 @@ class Atlas:
     def upsert_node(self, tenant_id: str, node_type: NodeType | str, value: str,
                     observed_at: datetime, provenance_id: str, *,
                     attrs: dict[str, Any] | None = None,
-                    recorded_at: datetime | None = None) -> AtlasNode:
+                    recorded_at: datetime | None = None) -> ConstellationNode:
         """Record that a node was seen. Idempotent per ``provenance_id``."""
         nid = node_key(node_type, value)
         _check(tenant_id, "tenant_id", 64)
@@ -438,18 +438,18 @@ class Atlas:
             try:
                 with self._sf.begin() as s:
                     self._ensure_node(s, tenant_id, nid, rec_at)
-                    existing = s.scalars(select(AtlasNodeObservationRow).where(
-                        AtlasNodeObservationRow.tenant_id == tenant_id,
-                        AtlasNodeObservationRow.node_id == nid,
-                        AtlasNodeObservationRow.provenance_id == provenance_id)).first()
+                    existing = s.scalars(select(ConstellationNodeObservationRow).where(
+                        ConstellationNodeObservationRow.tenant_id == tenant_id,
+                        ConstellationNodeObservationRow.node_id == nid,
+                        ConstellationNodeObservationRow.provenance_id == provenance_id)).first()
                     if existing is not None:
                         if (_from_db(existing.observed_at) != obs_at
                                 or (existing.attrs or {}) != clean_attrs):
-                            raise AtlasConflictError(
+                            raise ConstellationConflictError(
                                 f"provenance {provenance_id!r} re-delivered for node {nid!r} "
                                 "with different content")
                     else:
-                        s.add(AtlasNodeObservationRow(
+                        s.add(ConstellationNodeObservationRow(
                             tenant_id=tenant_id, node_id=nid, provenance_id=provenance_id,
                             observed_at=obs_at, recorded_at=rec_at, attrs=clean_attrs))
                 break
@@ -464,11 +464,11 @@ class Atlas:
                     observed_at: datetime, provenance_id: str,
                     evidence_grade: EvidenceGrade | str, source_group: str,
                     ttl_hours: int | None = None, *, attrs: dict[str, Any] | None = None,
-                    recorded_at: datetime | None = None) -> AtlasEdge:
+                    recorded_at: datetime | None = None) -> ConstellationEdge:
         """Record one observation of ``src -[edge_type]-> dst``.
 
         Idempotent per ``provenance_id``: a redelivery with identical content returns
-        the current edge; different content raises :class:`AtlasConflictError`.
+        the current edge; different content raises :class:`ConstellationConflictError`.
         Grade ``E`` is reserved for candidate links (:meth:`add_candidate_edge`).
         """
         grade = EvidenceGrade(evidence_grade)
@@ -482,7 +482,7 @@ class Atlas:
                            observed_at: datetime, provenance_id: str, *, rationale: str,
                            source_group: str = "agent:threat_correlation",
                            ttl_hours: int | None = None,
-                           recorded_at: datetime | None = None) -> AtlasEdge:
+                           recorded_at: datetime | None = None) -> ConstellationEdge:
         """Record a predicted/hypothesized link. Always grade E, investigative-only."""
         if not isinstance(rationale, str) or not rationale.strip():
             raise ValueError("candidate edges require a rationale")
@@ -492,7 +492,7 @@ class Atlas:
                                  candidate=True)
 
     def link_case(self, tenant_id: str, case_id: str, node_id: str, observed_at: datetime,
-                  provenance_id: str, *, recorded_at: datetime | None = None) -> AtlasEdge:
+                  provenance_id: str, *, recorded_at: datetime | None = None) -> ConstellationEdge:
         """``case -[mentioned_in_case]-> node`` (administrative, never eligible)."""
         return self.upsert_edge(tenant_id, node_key(NodeType.CASE, case_id), node_id,
                                 EdgeType.MENTIONED_IN_CASE, observed_at, provenance_id,
@@ -502,7 +502,7 @@ class Atlas:
     def _upsert_edge(self, tenant_id: str, src: str, dst: str, et: EdgeType,
                      observed_at: datetime, provenance_id: str, grade: EvidenceGrade,
                      source_group: str, ttl_hours: int | None, attrs: dict[str, Any] | None,
-                     recorded_at: datetime | None, *, candidate: bool) -> AtlasEdge:
+                     recorded_at: datetime | None, *, candidate: bool) -> ConstellationEdge:
         _check(tenant_id, "tenant_id", 64)
         _check(provenance_id, "provenance_id", 160)
         _check(source_group, "source_group", 160)
@@ -524,15 +524,15 @@ class Atlas:
                 with self._sf.begin() as s:
                     self._ensure_node(s, tenant_id, src_id, rec_at)
                     self._ensure_node(s, tenant_id, dst_id, rec_at)
-                    if s.get(AtlasEdgeRow, (tenant_id, eid)) is None:
-                        s.add(AtlasEdgeRow(tenant_id=tenant_id, edge_id=eid, src=src_id,
+                    if s.get(ConstellationEdgeRow, (tenant_id, eid)) is None:
+                        s.add(ConstellationEdgeRow(tenant_id=tenant_id, edge_id=eid, src=src_id,
                                            dst=dst_id, edge_type=et.value, candidate=candidate,
                                            created_at=rec_at))
                         s.flush()
-                    existing = s.scalars(select(AtlasEdgeObservationRow).where(
-                        AtlasEdgeObservationRow.tenant_id == tenant_id,
-                        AtlasEdgeObservationRow.edge_id == eid,
-                        AtlasEdgeObservationRow.provenance_id == provenance_id)).first()
+                    existing = s.scalars(select(ConstellationEdgeObservationRow).where(
+                        ConstellationEdgeObservationRow.tenant_id == tenant_id,
+                        ConstellationEdgeObservationRow.edge_id == eid,
+                        ConstellationEdgeObservationRow.provenance_id == provenance_id)).first()
                     if existing is not None:
                         same = (_from_db(existing.observed_at) == obs_at
                                 and existing.evidence_grade == grade.value
@@ -540,11 +540,11 @@ class Atlas:
                                 and existing.ttl_hours == ttl
                                 and (existing.attrs or {}) == clean_attrs)
                         if not same:
-                            raise AtlasConflictError(
+                            raise ConstellationConflictError(
                                 f"provenance {provenance_id!r} re-delivered for edge {eid} "
                                 "with different content")
                     else:
-                        s.add(AtlasEdgeObservationRow(
+                        s.add(ConstellationEdgeObservationRow(
                             tenant_id=tenant_id, edge_id=eid, provenance_id=provenance_id,
                             observed_at=obs_at, recorded_at=rec_at, evidence_grade=grade.value,
                             source_group=group, ttl_hours=ttl, attrs=clean_attrs))
@@ -558,15 +558,15 @@ class Atlas:
 
     @staticmethod
     def _ensure_node(s: Session, tenant_id: str, node_id: str, rec_at: datetime) -> None:
-        if s.get(AtlasNodeRow, (tenant_id, node_id)) is None:
+        if s.get(ConstellationNodeRow, (tenant_id, node_id)) is None:
             nt, value = parse_node_id(node_id)
-            s.add(AtlasNodeRow(tenant_id=tenant_id, node_id=node_id, node_type=nt.value,
+            s.add(ConstellationNodeRow(tenant_id=tenant_id, node_id=node_id, node_type=nt.value,
                                value=value, created_at=rec_at))
             s.flush()
 
     # ------------------------------------------------------------------ consumers
 
-    def ingest_event(self, event: Any, *, recorded_at: datetime | None = None) -> list[AtlasEdge]:
+    def ingest_event(self, event: Any, *, recorded_at: datetime | None = None) -> list[ConstellationEdge]:
         """Idempotent consumer for :class:`~aegis.contracts.models.ObservationEvent`.
 
         DNS responses with IP answers become ``observed_resolves_to`` edges
@@ -576,7 +576,7 @@ class Atlas:
         dns = getattr(event, "dns", None)
         if dns is None or str(dns.rcode).upper() != "NOERROR":
             return []
-        out: list[AtlasEdge] = []
+        out: list[ConstellationEdge] = []
         try:
             domain = node_key(NodeType.DOMAIN, dns.qname)
         except ValueError:
@@ -647,22 +647,23 @@ class Atlas:
 
     # ------------------------------------------------------------------ reads
 
-    def get_node(self, tenant_id: str, node_id: str, as_of: datetime | None = None) -> AtlasNode | None:
+    def get_node(self, tenant_id: str, node_id: str, as_of: datetime | None = None) -> ConstellationNode | None:
         nid = canonical_node_id(node_id)
         t = _utc(as_of) if as_of is not None else None
         with self._sf() as s:
-            row = s.get(AtlasNodeRow, (tenant_id, nid))
+            row = s.get(ConstellationNodeRow, (tenant_id, nid))
             if row is None:
                 return None
-            obs = list(s.scalars(select(AtlasNodeObservationRow).where(
-                AtlasNodeObservationRow.tenant_id == tenant_id,
-                AtlasNodeObservationRow.node_id == nid).order_by(AtlasNodeObservationRow.id)))
+            obs = list(s.scalars(select(ConstellationNodeObservationRow).where(
+                ConstellationNodeObservationRow.tenant_id == tenant_id,
+                ConstellationNodeObservationRow.node_id == nid).order_by(ConstellationNodeObservationRow.id)))
             edge_obs = list(s.execute(
-                select(AtlasEdgeObservationRow.observed_at, AtlasEdgeObservationRow.recorded_at)
-                .join(AtlasEdgeRow, (AtlasEdgeRow.tenant_id == AtlasEdgeObservationRow.tenant_id)
-                      & (AtlasEdgeRow.edge_id == AtlasEdgeObservationRow.edge_id))
-                .where(AtlasEdgeRow.tenant_id == tenant_id, AtlasEdgeRow.candidate.is_(False),
-                       or_(AtlasEdgeRow.src == nid, AtlasEdgeRow.dst == nid))))
+                select(ConstellationEdgeObservationRow.observed_at, ConstellationEdgeObservationRow.recorded_at)
+                .join(ConstellationEdgeRow,
+                      (ConstellationEdgeRow.tenant_id == ConstellationEdgeObservationRow.tenant_id)
+                      & (ConstellationEdgeRow.edge_id == ConstellationEdgeObservationRow.edge_id))
+                .where(ConstellationEdgeRow.tenant_id == tenant_id, ConstellationEdgeRow.candidate.is_(False),
+                       or_(ConstellationEdgeRow.src == nid, ConstellationEdgeRow.dst == nid))))
             created = _from_db(row.created_at)
         if t is not None and created > t:
             return None
@@ -683,14 +684,14 @@ class Atlas:
             seen.append(o_obs)
         if t is not None and not seen:
             return None
-        return AtlasNode(tenant_id=tenant_id, node_id=nid, node_type=NodeType(row.node_type),
+        return ConstellationNode(tenant_id=tenant_id, node_id=nid, node_type=NodeType(row.node_type),
                          value=row.value, first_seen=min(seen) if seen else None,
                          last_seen=max(seen) if seen else None, attrs=attrs,
                          provenance_ids=sorted(provs))
 
-    def get_edge(self, tenant_id: str, edge_id: str, as_of: datetime | None = None) -> AtlasEdge | None:
+    def get_edge(self, tenant_id: str, edge_id: str, as_of: datetime | None = None) -> ConstellationEdge | None:
         with self._sf() as s:
-            row = s.get(AtlasEdgeRow, (tenant_id, edge_id))
+            row = s.get(ConstellationEdgeRow, (tenant_id, edge_id))
             if row is None:
                 return None
             obs = self._obs_for(s, tenant_id, [edge_id])
@@ -721,19 +722,19 @@ class Atlas:
         return out
 
     def edges(self, tenant_id: str, as_of: datetime | None = None, *,
-              include_candidates: bool = True) -> list[AtlasEdge]:
+              include_candidates: bool = True) -> list[ConstellationEdge]:
         """All edges visible at ``as_of`` (expired ones included, flagged inactive)."""
         with self._sf() as s:
-            rows = list(s.scalars(select(AtlasEdgeRow).where(AtlasEdgeRow.tenant_id == tenant_id)
-                                  .order_by(AtlasEdgeRow.edge_id)))
+            rows = list(s.scalars(select(ConstellationEdgeRow).where(ConstellationEdgeRow.tenant_id == tenant_id)
+                                  .order_by(ConstellationEdgeRow.edge_id)))
             obs = self._obs_for(s, tenant_id, [r.edge_id for r in rows])
         out = self._fold(tenant_id, rows, obs, as_of)
         return [e for e in out if include_candidates or not e.candidate]
 
-    def nodes(self, tenant_id: str, as_of: datetime | None = None) -> list[AtlasNode]:
+    def nodes(self, tenant_id: str, as_of: datetime | None = None) -> list[ConstellationNode]:
         with self._sf() as s:
-            ids = list(s.scalars(select(AtlasNodeRow.node_id).where(
-                AtlasNodeRow.tenant_id == tenant_id).order_by(AtlasNodeRow.node_id)))
+            ids = list(s.scalars(select(ConstellationNodeRow.node_id).where(
+                ConstellationNodeRow.tenant_id == tenant_id).order_by(ConstellationNodeRow.node_id)))
         out = []
         for nid in ids:
             n = self.get_node(tenant_id, nid, as_of)
@@ -836,7 +837,7 @@ class Atlas:
         nodes = self.nodes(tenant_id, t)
         edges = self.edges(tenant_id, t)
         body = {
-            "v": ATLAS_SNAPSHOT_VERSION,
+            "v": CONSTELLATION_SNAPSHOT_VERSION,
             "tenant_id": tenant_id,
             "as_of": t.isoformat(),
             "nodes": [{"id": n.node_id, "first_seen": n.first_seen, "last_seen": n.last_seen,
@@ -849,7 +850,7 @@ class Atlas:
                        "eligible": e.enforcement_eligible} for e in edges],
         }
         digest = sha256_hex(body)
-        return {"snapshot_id": f"atlas_{digest[:32]}", "snapshot_hash": digest,
+        return {"snapshot_id": f"constellation_{digest[:32]}", "snapshot_hash": digest,
                 "tenant_id": tenant_id, "as_of": t, "node_count": len(nodes),
                 "edge_count": len(edges)}
 
@@ -868,16 +869,16 @@ class Atlas:
         snap = self.snapshot(tenant_id, as_of if as_of is not None else self._clock())
         created = False
         with self._lock, self._sf.begin() as s:
-            if s.get(AtlasSnapshotRow, (tenant_id, snap["snapshot_id"])) is None:
+            if s.get(ConstellationSnapshotRow, (tenant_id, snap["snapshot_id"])) is None:
                 created = True
-                s.add(AtlasSnapshotRow(
+                s.add(ConstellationSnapshotRow(
                     tenant_id=tenant_id, snapshot_id=snap["snapshot_id"], as_of=snap["as_of"],
                     snapshot_hash=snap["snapshot_hash"], node_count=snap["node_count"],
                     edge_count=snap["edge_count"], reason=reason, subject_id=subject_id,
                     created_at=self._clock()))
         # anchor new snapshots, and every snapshot taken for a specific subject (case)
         if self._ledger is not None and (created or subject_id is not None):
-            self._ledger.append(tenant_id, ATLAS_SNAPSHOT_ENTRY_TYPE,
+            self._ledger.append(tenant_id, CONSTELLATION_SNAPSHOT_ENTRY_TYPE,
                                 subject_id or snap["snapshot_id"], {
                                     "snapshot_id": snap["snapshot_id"],
                                     "snapshot_hash": snap["snapshot_hash"],
@@ -895,8 +896,8 @@ class Atlas:
 
     def snapshots(self, tenant_id: str) -> list[dict[str, Any]]:
         with self._sf() as s:
-            rows = list(s.scalars(select(AtlasSnapshotRow).where(
-                AtlasSnapshotRow.tenant_id == tenant_id).order_by(AtlasSnapshotRow.as_of)))
+            rows = list(s.scalars(select(ConstellationSnapshotRow).where(
+                ConstellationSnapshotRow.tenant_id == tenant_id).order_by(ConstellationSnapshotRow.as_of)))
         return [{"snapshot_id": r.snapshot_id, "snapshot_hash": r.snapshot_hash,
                  "as_of": _from_db(r.as_of), "node_count": r.node_count,
                  "edge_count": r.edge_count, "reason": r.reason, "subject_id": r.subject_id}
@@ -919,29 +920,29 @@ class Atlas:
         out: dict[str, list[_Obs]] = defaultdict(list)
         for i in range(0, len(edge_ids), 500):
             chunk = edge_ids[i:i + 500]
-            for row in s.scalars(select(AtlasEdgeObservationRow).where(
-                    AtlasEdgeObservationRow.tenant_id == tenant_id,
-                    AtlasEdgeObservationRow.edge_id.in_(chunk))
-                    .order_by(AtlasEdgeObservationRow.id)):
+            for row in s.scalars(select(ConstellationEdgeObservationRow).where(
+                    ConstellationEdgeObservationRow.tenant_id == tenant_id,
+                    ConstellationEdgeObservationRow.edge_id.in_(chunk))
+                    .order_by(ConstellationEdgeObservationRow.id)):
                 out[row.edge_id].append(_Obs(row))
         return out
 
     def _edges_touching(self, tenant_id: str, node_ids: list[str],
-                        as_of: datetime | None) -> list[AtlasEdge]:
+                        as_of: datetime | None) -> list[ConstellationEdge]:
         with self._sf() as s:
-            rows = list(s.scalars(select(AtlasEdgeRow).where(
-                AtlasEdgeRow.tenant_id == tenant_id,
-                or_(AtlasEdgeRow.src.in_(node_ids), AtlasEdgeRow.dst.in_(node_ids)))
-                .order_by(AtlasEdgeRow.edge_id)))
+            rows = list(s.scalars(select(ConstellationEdgeRow).where(
+                ConstellationEdgeRow.tenant_id == tenant_id,
+                or_(ConstellationEdgeRow.src.in_(node_ids), ConstellationEdgeRow.dst.in_(node_ids)))
+                .order_by(ConstellationEdgeRow.edge_id)))
             obs = self._obs_for(s, tenant_id, [r.edge_id for r in rows])
         return self._fold(tenant_id, rows, obs, as_of)
 
     def _resolving_domains(self, tenant_id: str, ip_id: str, as_of: datetime | None) -> int:
         with self._sf() as s:
-            rows = list(s.scalars(select(AtlasEdgeRow).where(
-                AtlasEdgeRow.tenant_id == tenant_id, AtlasEdgeRow.dst == ip_id,
-                AtlasEdgeRow.edge_type == EdgeType.OBSERVED_RESOLVES_TO.value,
-                AtlasEdgeRow.candidate.is_(False))))
+            rows = list(s.scalars(select(ConstellationEdgeRow).where(
+                ConstellationEdgeRow.tenant_id == tenant_id, ConstellationEdgeRow.dst == ip_id,
+                ConstellationEdgeRow.edge_type == EdgeType.OBSERVED_RESOLVES_TO.value,
+                ConstellationEdgeRow.candidate.is_(False))))
             obs = self._obs_for(s, tenant_id, [r.edge_id for r in rows])
         ref = _utc(as_of) if as_of is not None else self._clock()
         n = 0
@@ -961,9 +962,9 @@ class Atlas:
         ids = sorted(node_ids)
         with self._sf() as s:
             for i in range(0, len(ids), 500):
-                for row in s.scalars(select(AtlasNodeObservationRow).where(
-                        AtlasNodeObservationRow.tenant_id == tenant_id,
-                        AtlasNodeObservationRow.node_id.in_(ids[i:i + 500]))):
+                for row in s.scalars(select(ConstellationNodeObservationRow).where(
+                        ConstellationNodeObservationRow.tenant_id == tenant_id,
+                        ConstellationNodeObservationRow.node_id.in_(ids[i:i + 500]))):
                     if (row.attrs or {}).get("shared_hosting") is not True:
                         continue
                     if t is None or (_from_db(row.recorded_at) <= t
@@ -971,15 +972,15 @@ class Atlas:
                         out.add(row.node_id)
         return out
 
-    def _fold(self, tenant_id: str, rows: list[AtlasEdgeRow], obs: dict[str, list[_Obs]],
-              as_of: datetime | None) -> list[AtlasEdge]:
+    def _fold(self, tenant_id: str, rows: list[ConstellationEdgeRow], obs: dict[str, list[_Obs]],
+              as_of: datetime | None) -> list[ConstellationEdge]:
         t = _utc(as_of) if as_of is not None else None
         ref = t if t is not None else self._clock()
         shared_attr = self._shared_nodes(
             tenant_id, {r.dst for r in rows if r.edge_type == EdgeType.OBSERVED_RESOLVES_TO.value},
             as_of)
         fan_in_cache: dict[str, bool] = {}
-        out: list[AtlasEdge] = []
+        out: list[ConstellationEdge] = []
         for r in rows:
             agg = _aggregate(obs.get(r.edge_id, []), t)
             if agg is None:
@@ -1007,7 +1008,7 @@ class Atlas:
                 if fan_in_cache[r.dst]:
                     reasons.append("shared_hosting_destination")
             eligible = et in ENFORCEMENT_CAPABLE_EDGE_TYPES and not reasons
-            out.append(AtlasEdge(
+            out.append(ConstellationEdge(
                 tenant_id=tenant_id, edge_id=r.edge_id, src=r.src, dst=r.dst, edge_type=et,
                 first_seen=agg["first_seen"], last_seen=agg["last_seen"],
                 provenance_ids=agg["provenance_ids"], evidence_grade=grade,

@@ -160,7 +160,7 @@ These were found by the end-to-end tests above and fixed with the smallest backw
    so every investigation in a running deployment reported `ledger_chain_verification_failed` and escalated.
    `build_default_toolset` now takes `ledger_keyring`, and the service passes its ledger keyring. Regression
    checks: `test_prompt_injection_in_tool_output_contained` and `test_demo_flow.py`.
-2. `aegis/oracle/tools.py`, `CandidateEdgeWriter`: re-investigating a case raised `AtlasConflictError`, which
+2. `aegis/oracle/tools.py`, `CandidateEdgeWriter`: re-investigating a case raised `ConstellationConflictError`, which
    the API returned as HTTP 500, because the candidate-edge provenance id was reused for different content.
    The provenance id is now a digest of the observation, so identical re-deliveries are idempotent. Regression
    check: the re-investigation in `test_prompt_injection_in_tool_output_contained`.

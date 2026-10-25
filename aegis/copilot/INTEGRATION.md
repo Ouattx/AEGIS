@@ -16,7 +16,7 @@ self.copilot = Copilot(ServiceDataSource(self), llm=copilot_llm)
 * `ServiceDataSource` uses only the service's read paths: `list_findings`, `get_finding`,
   `list_cases`, `case_detail`, `evidence_view`, `get_action`, `graph_view`, `verify_ledger`,
   `metrics_summary`, `ready`, `ioc_status`, `topology_status`, `list_sources`, plus
-  `ledger.entries/get/latest`, `evidence.get`, `docs.get`, `cases.get`, `atlas.get_node`,
+  `ledger.entries/get/latest`, `evidence.get`, `docs.get`, `cases.get`, `constellation.get_node`,
   `quarantine`, `bus.depth`, `executor.active`.
 * MIRROR simulation uses `service._simulate_for_agent` (read-only: no `MirrorRecord`, no ledger
   entry). If that private method is renamed, pass the simulator explicitly:

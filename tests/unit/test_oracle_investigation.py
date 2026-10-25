@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from aegis.atlas import Atlas, EdgeType, node_key
+from aegis.constellation import Constellation, EdgeType, node_key
 from aegis.contracts.models import (
     ActionType,
     CaseState,
@@ -104,9 +104,9 @@ class Env:
         self.ring = KeyRing()
         self.ring.add_signer(self.policy_signer)
         self.ring.add_signer(self.ledger_signer)
-        self.atlas = Atlas(sf, ledger=self.ledger)
+        self.constellation = Constellation(sf, ledger=self.ledger)
         self.svc = CaseService(self.docs, self.evidence, self.ledger, keyring=self.ring,
-                               atlas=self.atlas)
+                               constellation=self.constellation)
         self.sleeps: list[float] = []
 
     def ev(self, group: str, *, kind=EvidenceKind.OBSERVATION, supports=True, payload=None,
@@ -131,7 +131,7 @@ class Env:
 
     def toolset(self, **kw):
         return build_default_toolset(docstore=self.docs, evidence_store=self.evidence,
-                                     ledger=self.ledger, atlas=kw.pop("atlas", self.atlas),
+                                     ledger=self.ledger, constellation=kw.pop("constellation", self.constellation),
                                      keyring=self.ring, **kw)
 
     def investigator(self, llm=None, budget=None, toolset=None, mono=None):
@@ -272,14 +272,14 @@ def test_tampered_evidence_flagged(env):
 
 def test_graph_context_shared_hosting_and_candidates(env):
     for i in range(4):
-        env.atlas.upsert_edge(TEN, node_key("domain", f"legit{i}.example"), "ip:198.51.100.80",
+        env.constellation.upsert_edge(TEN, node_key("domain", f"legit{i}.example"), "ip:198.51.100.80",
                               EdgeType.OBSERVED_RESOLVES_TO, NOW - timedelta(hours=1), f"cdn-{i}", "B",
                               "sensor:dns")
-    env.atlas.upsert_edge(TEN, "domain:c2-front.example", "ip:198.51.100.80",
+    env.constellation.upsert_edge(TEN, "domain:c2-front.example", "ip:198.51.100.80",
                           EdgeType.OBSERVED_RESOLVES_TO, NOW - timedelta(hours=1), "front", "B", "sensor:dns")
-    env.atlas.upsert_edge(TEN, "domain:c2-front.example", "ip:192.0.2.66",
+    env.constellation.upsert_edge(TEN, "domain:c2-front.example", "ip:192.0.2.66",
                           EdgeType.OBSERVED_RESOLVES_TO, NOW - timedelta(hours=1), "ded", "B", "sensor:dns")
-    env.atlas.upsert_edge(TEN, "domain:c2-alt.example", "ip:192.0.2.66",
+    env.constellation.upsert_edge(TEN, "domain:c2-alt.example", "ip:192.0.2.66",
                           EdgeType.OBSERVED_RESOLVES_TO, NOW - timedelta(hours=1), "alt", "B", "sensor:dns")
     evs = [env.ev("grp:beta", kind=EvidenceKind.IOC_MATCH,
                   payload={"indicator_value": "c2-front.example", "resolved_ips": ["198.51.100.80"]}),
@@ -290,14 +290,14 @@ def test_graph_context_shared_hosting_and_candidates(env):
     assert "investigative only" in text
     assert report.candidate_edge_ids
     for eid in report.candidate_edge_ids:
-        edge = env.atlas.get_edge(TEN, eid)
+        edge = env.constellation.get_edge(TEN, eid)
         assert edge.candidate and not edge.enforcement_eligible
     assert any(h.title.startswith("Stale or over-broad") and h.plausibility != "low"
                for h in report.alternative_hypotheses)
 
 
-def test_no_atlas_configured(env):
-    ts = env.toolset(atlas=None)
+def test_no_constellation_configured(env):
+    ts = env.toolset(constellation=None)
     report = env.investigator(toolset=ts).investigate(env.case(strong_evidence(env)))
     assert any("not configured" in g for g in report.graph_findings)
 
@@ -561,7 +561,7 @@ def test_planner_drafts_proposal_for_verified_case(env):
 
 def test_planner_avoids_shared_infrastructure(env):
     for i in range(4):
-        env.atlas.upsert_edge(TEN, node_key("domain", f"legit{i}.example"), "ip:198.51.100.80",
+        env.constellation.upsert_edge(TEN, node_key("domain", f"legit{i}.example"), "ip:198.51.100.80",
                               EdgeType.OBSERVED_RESOLVES_TO, NOW - timedelta(hours=1), f"cdn-{i}",
                               "B", "sensor:dns")
     evs = [env.ev("sensor:netflow", payload={"dst_ip": "198.51.100.80"}),

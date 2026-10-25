@@ -1,7 +1,7 @@
 """MIRROR impact simulation (spec section 9).
 
 Given a proposed DNS / IP / device control, compute the affected entities, known
-legitimate co-tenants (from the hosting topology and the ATLAS graph), the
+legitimate co-tenants (from the hosting topology and the CONSTELLATION graph), the
 historic aggregate impact, reversibility and unknowns, and classify the action:
 
 * ``SAFE``    - the footprint is fully known and contains no legitimate collateral;
@@ -113,10 +113,10 @@ def _canon_indicator(value: str) -> str | None:
 
 
 class _Graph:
-    """Thin, failure-tolerant facade over :class:`aegis.atlas.graph.Atlas`."""
+    """Thin, failure-tolerant facade over :class:`aegis.constellation.graph.Constellation`."""
 
-    def __init__(self, atlas: Any, tenant_id: str, as_of: datetime | None, acc: _Acc):
-        self.atlas = atlas
+    def __init__(self, constellation: Any, tenant_id: str, as_of: datetime | None, acc: _Acc):
+        self.constellation = constellation
         self.tenant_id = tenant_id
         self.as_of = as_of
         self.acc = acc
@@ -130,56 +130,56 @@ class _Graph:
 
     def resolving_domains(self, ip: str) -> list[str]:
         """Domains with an active ``observed_resolves_to`` edge into ``ip``."""
-        from aegis.atlas.graph import EdgeType
+        from aegis.constellation.graph import EdgeType
 
-        nbrs = self._call("neighbors", self.atlas.neighbors, self.tenant_id, f"ip:{ip}",
+        nbrs = self._call("neighbors", self.constellation.neighbors, self.tenant_id, f"ip:{ip}",
                           self.as_of, edge_types=[EdgeType.OBSERVED_RESOLVES_TO])
         return [n.node_id.partition(":")[2] for n in nbrs or []
                 if n.direction == "in" and n.node_id.startswith("domain:")]
 
     def dependents(self, domain: str) -> list[str]:
         """Domains that resolve *through* ``domain`` (CNAME-style resolves edges into it)."""
-        from aegis.atlas.graph import EdgeType
+        from aegis.constellation.graph import EdgeType
 
-        nbrs = self._call("neighbors", self.atlas.neighbors, self.tenant_id, f"domain:{domain}",
+        nbrs = self._call("neighbors", self.constellation.neighbors, self.tenant_id, f"domain:{domain}",
                           self.as_of, edge_types=[EdgeType.OBSERVED_RESOLVES_TO])
         return [n.node_id.partition(":")[2] for n in nbrs or []
                 if n.direction == "in" and n.node_id.startswith("domain:")]
 
     def resolved_ips(self, domain: str) -> list[str]:
-        from aegis.atlas.graph import EdgeType
+        from aegis.constellation.graph import EdgeType
 
-        nbrs = self._call("neighbors", self.atlas.neighbors, self.tenant_id, f"domain:{domain}",
+        nbrs = self._call("neighbors", self.constellation.neighbors, self.tenant_id, f"domain:{domain}",
                           self.as_of, edge_types=[EdgeType.OBSERVED_RESOLVES_TO])
         return [n.node_id.partition(":")[2] for n in nbrs or []
                 if n.direction == "out" and n.node_id.startswith("ip:")]
 
     def is_shared(self, ip: str) -> bool:
-        shared = self._call("is_shared_hosting", self.atlas.is_shared_hosting,
+        shared = self._call("is_shared_hosting", self.constellation.is_shared_hosting,
                             self.tenant_id, f"ip:{ip}", self.as_of)
-        node = self._call("get_node", self.atlas.get_node, self.tenant_id, f"ip:{ip}", self.as_of)
+        node = self._call("get_node", self.constellation.get_node, self.tenant_id, f"ip:{ip}", self.as_of)
         flagged = bool(node is not None and (node.attrs or {}).get("shared_hosting") is True)
         return bool(shared) or flagged
 
     def knows_domain(self, domain: str) -> bool:
-        node = self._call("get_node", self.atlas.get_node, self.tenant_id,
+        node = self._call("get_node", self.constellation.get_node, self.tenant_id,
                           f"domain:{domain}", self.as_of)
         return node is not None
 
     def attributed_to_threat(self, domain_or_ip: str, kind: str) -> bool:
         """True if an enforcement-eligible ``attributed_to`` edge links it to a malware family."""
-        from aegis.atlas.graph import EdgeType
+        from aegis.constellation.graph import EdgeType
 
-        nbrs = self._call("neighbors", self.atlas.neighbors, self.tenant_id,
+        nbrs = self._call("neighbors", self.constellation.neighbors, self.tenant_id,
                           f"{kind}:{domain_or_ip}", self.as_of,
                           edge_types=[EdgeType.ATTRIBUTED_TO])
         return any(n.direction == "out" and n.node_id.startswith("malware_family:")
                    and n.edge.enforcement_eligible for n in nbrs or [])
 
     def known_domains(self) -> list[str]:
-        from aegis.atlas.graph import NodeType
+        from aegis.constellation.graph import NodeType
 
-        nodes = self._call("nodes", self.atlas.nodes, self.tenant_id, self.as_of)
+        nodes = self._call("nodes", self.constellation.nodes, self.tenant_id, self.as_of)
         return [n.value for n in nodes or [] if n.node_type is NodeType.DOMAIN]
 
 
@@ -191,12 +191,12 @@ def simulate(action: ProposedAction, topology: TopologyView | None, graph: Any |
     """Simulate the impact of ``action``. Never raises for bad input: it fails closed.
 
     ``topology``      operator hosting knowledge (``None`` => UNKNOWN for DNS/IP actions)
-    ``graph``         an :class:`~aegis.atlas.graph.Atlas` or ``None`` (advisory unknown)
+    ``graph``         an :class:`~aegis.constellation.graph.Constellation` or ``None`` (advisory unknown)
     ``history``       historic aggregates (``None`` => impact unknown, human approval)
     ``now``           evaluation time; also the ``as_of`` for graph queries when given
     ``case_indicators`` domains/IPs that the case evidence ties to the threat; names
                       in this set hosted on a target IP are not counted as legitimate
-                      co-tenants. Names attributed to a malware family in ATLAS
+                      co-tenants. Names attributed to a malware family in CONSTELLATION
                       (enforcement-eligible ``attributed_to`` edge) are excluded too.
                       Targets themselves are *not* assumed malicious: a DNS / IP target
                       that is neither a case indicator nor threat-attributed is treated
@@ -222,7 +222,7 @@ def simulate(action: ProposedAction, topology: TopologyView | None, graph: Any |
     if not action.targets:
         acc.unsafe.append("no_targets")
 
-    # only case evidence (and signed ATLAS attribution, checked per name) ties a name to
+    # only case evidence (and signed CONSTELLATION attribution, checked per name) ties a name to
     # the threat; the proposer's choice of target never does
     threat: set[str] = set()
     for ind in case_indicators:

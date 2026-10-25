@@ -549,7 +549,7 @@ DEFAULT_TOOLS: tuple[CopilotTool, ...] = (
        EvidenceIdArgs, _get_evidence),
     _t("list_campaigns", "RESONANCE cross-subscriber C2 campaigns recorded in this tenant's ledger "
        "(destinations, lines, period, p/q values, enforcement eligibility).", ListCampaignsArgs, _list_campaigns),
-    _t("graph_neighbors", "ATLAS infrastructure graph: a node and its current neighbors with edge type, "
+    _t("graph_neighbors", "CONSTELLATION infrastructure graph: a node and its current neighbors with edge type, "
        "evidence grade and enforcement eligibility.", GraphArgs, _graph_neighbors),
     _t("verify_ledger", "Verify the tenant's provenance ledger hash chain and signatures.", NoArgs, _verify_ledger),
     _t("ledger_query", "Read raw provenance ledger entries (newest first) by subject id, entry type or sequence "

@@ -246,7 +246,7 @@ def test_cross_tenant_isolation(pilot: World) -> None:
                                     action_type="notify_subscriber",
                                     targets=[svc.get_finding(tenant, verified.finding_ids[0]).entity_pseudonym],
                                     legal_basis=LEGAL_BASIS, expires_at=svc.clock() + timedelta(hours=4))
-    node = svc.atlas.edges(tenant)[0].src
+    node = svc.constellation.edges(tenant)[0].src
     head_before = svc.ledger.head(tenant)
     quarantined_before = svc.quarantine.count(tenant)
 
@@ -432,7 +432,7 @@ def test_prompt_injection_in_tool_output_contained(pilot: World) -> None:
                                 records={i: {"verdict": "unknown", "analyst_comment": INJECTION}
                                          for i in case_indicators(pilot, case_id)})
     toolset = build_default_toolset(docstore=svc.docs, evidence_store=svc.evidence, ledger=svc.ledger,
-                                    atlas=svc.atlas, keyring=svc.policy_keyring, connectors=[feed],
+                                    constellation=svc.constellation, keyring=svc.policy_keyring, connectors=[feed],
                                     clock=svc.clock, ledger_keyring=svc.ledger_keyring)
     hostile = HostileLLM()
     original = svc.investigator

@@ -5,7 +5,7 @@ strict CSP: no inline scripts, no external origins; every asset is bundled).
 
 Screens: Overview (KPIs, trends, posture), Findings, Cases, Case detail (hypothesis vs
 alternatives, evidence trail with hashes and source-independence groups, decision timeline,
-investigation report, ATLAS graph neighbourhood, replay-as-of), Actions (propose → MIRROR
+investigation report, CONSTELLATION graph neighbourhood, replay-as-of), Actions (propose → MIRROR
 simulation → authorization checklist → four-eyes approval → execute / roll back), Ledger,
 Reports (shadow proof-of-value report) and Settings (policy and enforcement mode).
 

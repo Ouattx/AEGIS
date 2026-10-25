@@ -18,7 +18,7 @@ from test_mirror_helpers import (
     topology,
 )
 
-from aegis.atlas.graph import Atlas
+from aegis.constellation.graph import Constellation
 from aegis.contracts.models import (
     ActionType,
     DnsObservation,
@@ -254,81 +254,81 @@ def test_device_target_must_be_pseudonym():
     assert r.verdict is MirrorVerdict.UNSAFE
 
 
-# ------------------------------------------------------------------ ATLAS integration
+# ------------------------------------------------------------------ CONSTELLATION integration
 
-def _atlas(tmp_path) -> Atlas:
-    return Atlas(session_factory(tmp_path), clock=lambda: T0)
+def _constellation(tmp_path) -> Constellation:
+    return Constellation(session_factory(tmp_path), clock=lambda: T0)
 
 
-def test_atlas_reveals_extra_cotenants_on_dedicated_ip(tmp_path):
-    atlas = _atlas(tmp_path)
+def test_constellation_reveals_extra_cotenants_on_dedicated_ip(tmp_path):
+    constellation = _constellation(tmp_path)
     for i, name in enumerate(["c2.bad.example", "blog.innocent.example"]):
-        atlas.upsert_edge(TENANT, f"domain:{name}", f"ip:{C2_IP}", "observed_resolves_to",
+        constellation.upsert_edge(TENANT, f"domain:{name}", f"ip:{C2_IP}", "observed_resolves_to",
                           T0 - timedelta(hours=2), f"prov-{i}", "B", "sensor:resolver",
                           recorded_at=T0 - timedelta(hours=1))
-    r = simulate(action(ActionType.IP_BLOCK, [C2_IP]), topology(), atlas, history(), now=T0,
+    r = simulate(action(ActionType.IP_BLOCK, [C2_IP]), topology(), constellation, history(), now=T0,
                  case_indicators=[C2_DOMAIN])
     assert r.verdict is MirrorVerdict.UNSAFE
     assert r.legitimate_cotenants == ["blog.innocent.example"]
     assert "graph_unavailable" not in r.unknowns
 
 
-def test_atlas_attributed_names_are_not_collateral(tmp_path):
-    atlas = _atlas(tmp_path)
-    atlas.upsert_edge(TENANT, "domain:c2.bad.example", "malware_family:badbox2_emu",
+def test_constellation_attributed_names_are_not_collateral(tmp_path):
+    constellation = _constellation(tmp_path)
+    constellation.upsert_edge(TENANT, "domain:c2.bad.example", "malware_family:badbox2_emu",
                       "attributed_to", T0 - timedelta(hours=2), "prov-attr", "A", "feed:x",
                       recorded_at=T0 - timedelta(hours=1))
-    r = simulate(action(ActionType.IP_BLOCK, [C2_IP]), topology(), atlas, history(), now=T0)
+    r = simulate(action(ActionType.IP_BLOCK, [C2_IP]), topology(), constellation, history(), now=T0)
     assert r.verdict is MirrorVerdict.SAFE
     assert r.legitimate_cotenants == []
 
 
-def test_atlas_shared_hosting_flag_marks_shared(tmp_path):
-    atlas = _atlas(tmp_path)
+def test_constellation_shared_hosting_flag_marks_shared(tmp_path):
+    constellation = _constellation(tmp_path)
     for i in range(3):
-        atlas.upsert_edge(TENANT, f"domain:site{i}.example", f"ip:{C2_IP}",
+        constellation.upsert_edge(TENANT, f"domain:site{i}.example", f"ip:{C2_IP}",
                           "observed_resolves_to", T0 - timedelta(hours=2), f"p{i}", "B", "s",
                           recorded_at=T0 - timedelta(hours=1))
-    r = simulate(action(ActionType.IP_BLOCK, [C2_IP]), topology(), atlas, history(), now=T0,
+    r = simulate(action(ActionType.IP_BLOCK, [C2_IP]), topology(), constellation, history(), now=T0,
                  case_indicators=[C2_DOMAIN])
     assert r.shared_infrastructure is True
     assert r.verdict is MirrorVerdict.UNSAFE
 
 
-def test_atlas_knowledge_after_now_is_ignored(tmp_path):
-    atlas = _atlas(tmp_path)
-    atlas.upsert_edge(TENANT, "domain:late.innocent.example", f"ip:{C2_IP}",
+def test_constellation_knowledge_after_now_is_ignored(tmp_path):
+    constellation = _constellation(tmp_path)
+    constellation.upsert_edge(TENANT, "domain:late.innocent.example", f"ip:{C2_IP}",
                       "observed_resolves_to", T0 + timedelta(hours=1), "late", "B", "s",
                       recorded_at=T0 + timedelta(hours=2))
-    r = simulate(action(ActionType.IP_BLOCK, [C2_IP]), topology(), atlas, history(), now=T0,
+    r = simulate(action(ActionType.IP_BLOCK, [C2_IP]), topology(), constellation, history(), now=T0,
                  case_indicators=[C2_DOMAIN])
     assert r.verdict is MirrorVerdict.SAFE
 
 
-def test_atlas_dependent_domain_blocks_sinkhole(tmp_path):
-    atlas = _atlas(tmp_path)
-    atlas.upsert_edge(TENANT, "domain:shop.customer.example", "domain:img.bad.example",
+def test_constellation_dependent_domain_blocks_sinkhole(tmp_path):
+    constellation = _constellation(tmp_path)
+    constellation.upsert_edge(TENANT, "domain:shop.customer.example", "domain:img.bad.example",
                       "observed_resolves_to", T0 - timedelta(hours=2), "cname", "B", "s",
                       recorded_at=T0 - timedelta(hours=1))
-    r = simulate(action(targets=["img.bad.example"]), topology(), atlas, history(), now=T0)
+    r = simulate(action(targets=["img.bad.example"]), topology(), constellation, history(), now=T0)
     assert r.verdict is MirrorVerdict.UNSAFE
     assert "shop.customer.example" in r.legitimate_cotenants
 
 
-def test_atlas_known_domain_counts_as_footprint(tmp_path):
-    atlas = _atlas(tmp_path)
-    atlas.upsert_node(TENANT, "domain", "dga-abc.test", T0 - timedelta(hours=2), "n1",
+def test_constellation_known_domain_counts_as_footprint(tmp_path):
+    constellation = _constellation(tmp_path)
+    constellation.upsert_node(TENANT, "domain", "dga-abc.test", T0 - timedelta(hours=2), "n1",
                       recorded_at=T0 - timedelta(hours=1))
-    r = simulate(action(targets=["dga-abc.test"]), topology(), atlas, history(), now=T0)
+    r = simulate(action(targets=["dga-abc.test"]), topology(), constellation, history(), now=T0)
     assert r.verdict is MirrorVerdict.SAFE
 
 
 def test_simulation_is_tenant_scoped(tmp_path):
-    atlas = _atlas(tmp_path)
-    atlas.upsert_edge("other-tenant", "domain:blog.innocent.example", f"ip:{C2_IP}",
+    constellation = _constellation(tmp_path)
+    constellation.upsert_edge("other-tenant", "domain:blog.innocent.example", f"ip:{C2_IP}",
                       "observed_resolves_to", T0 - timedelta(hours=2), "x", "B", "s",
                       recorded_at=T0 - timedelta(hours=1))
-    r = simulate(action(ActionType.IP_BLOCK, [C2_IP]), topology(), atlas, history(), now=T0,
+    r = simulate(action(ActionType.IP_BLOCK, [C2_IP]), topology(), constellation, history(), now=T0,
                  case_indicators=[C2_DOMAIN])
     assert r.verdict is MirrorVerdict.SAFE
 

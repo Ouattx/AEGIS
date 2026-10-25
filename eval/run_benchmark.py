@@ -334,8 +334,8 @@ def run_benchmark(cfg: BenchmarkConfig, *, log: Callable[[str], None] = lambda m
         "config": cfg_dict,
         "systems": {n: SYSTEM_DESCRIPTIONS[n] for n in names},
         "systems_not_evaluated": {
-            "graph_plus_agents": ("ATLAS graph and ORACLE agents verify and explain alerts in the case workflow; "
-                                  "they do not emit device-day detections, so they are assessed through case "
+            "graph_plus_agents": ("CONSTELLATION graph and ORACLE agents verify and explain alerts in the case "
+                                  "workflow; they do not emit device-day detections, so they are assessed through case "
                                   "outcomes in the shadow PoV report, not in this detection benchmark"),
             "dataset_C": "legally verified infringement cases belong to RIGHTS, out of scope for SHIELD v1",
         },

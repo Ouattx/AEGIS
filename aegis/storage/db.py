@@ -1,6 +1,6 @@
 """Shared storage: one SQLAlchemy engine, PostgreSQL in production, SQLite in tests.
 
-Modules that need their own tables (provenance ledger, atlas graph) declare them on
+Modules that need their own tables (provenance ledger, constellation graph) declare them on
 ``Base`` from this module so ``init_db`` creates everything in one place.
 Generic contract objects (findings, cases, actions, policies...) live in DocStore.
 """
@@ -39,9 +39,17 @@ def make_engine(url: str | None = None) -> Engine:
 
 
 def init_db(engine: Engine) -> None:
-    # import modules that register tables on Base
+    """Create every table registered on ``Base`` that does not exist yet.
+
+    ``create_all`` is idempotent and leaves unknown tables untouched, so this is also the
+    migration path for table renames: the CONSTELLATION graph tables (``constellation_*``,
+    renamed from the graph module's original name) are created on first start against an
+    existing database. v1 has no deployed data, so no row migration exists or is needed;
+    a development database that still holds the pre-rename graph tables keeps them unused
+    and they can be dropped by hand.
+    """
     import aegis.provenance.ledger  # noqa: F401
-    import aegis.atlas.graph  # noqa: F401
+    import aegis.constellation.graph  # noqa: F401
     Base.metadata.create_all(engine)
 
 

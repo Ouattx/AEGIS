@@ -4,7 +4,7 @@
 
     storage (DocStore, coverage tables)
       -> provenance (signed Ledger, KeyRings, EvidenceStore)
-      -> atlas (temporal graph)          -> oracle (CaseService, Investigator, toolset)
+      -> constellation (temporal graph)          -> oracle (CaseService, Investigator, toolset)
       -> ingest (per-tenant IngestPipeline over one EventBus, quarantine, tenant keys)
       -> sentinel (per-tenant Sentinel: shared calibrated model + tenant IOC bundle)
       -> mirror (operator topology, traffic history, simulate/authorize, Executor)
@@ -40,9 +40,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from aegis.api.settings import Settings
 from aegis.api.topology import OperatorTopology, TopologyError, parse_topology
-from aegis.atlas.graph import (
-    Atlas,
-    AtlasError,
+from aegis.constellation.graph import (
+    Constellation,
+    ConstellationError,
     EdgeType,
     EvidenceGrade,
     NodeType,
@@ -350,15 +350,15 @@ class AegisService:
         self.evidence = EvidenceStore(self.docs, self.ledger)
 
         # -- graph and cases
-        self.atlas = Atlas(self.sf, ledger=self.ledger, clock=self.clock)
+        self.constellation = Constellation(self.sf, ledger=self.ledger, clock=self.clock)
         self.cases = CaseService(self.docs, self.evidence, self.ledger, keyring=self.policy_keyring,
-                                 atlas=self.atlas, clock=self.clock,
+                                 constellation=self.constellation, clock=self.clock,
                                  live_execution_probe=self._live_actions_for_case)
         self.history = AggregateTrafficHistory()
         self._history_span: dict[str, tuple[datetime, datetime]] = {}
         self._topologies: dict[str, OperatorTopology] = {}
         self.toolset = build_default_toolset(docstore=self.docs, evidence_store=self.evidence, ledger=self.ledger,
-                                             atlas=self.atlas, keyring=self.policy_keyring,
+                                             constellation=self.constellation, keyring=self.policy_keyring,
                                              simulator=self._simulate_for_agent, clock=self.clock,
                                              ledger_keyring=self.ledger_keyring)
         self.llm = llm if llm is not None else (llm_from_env() if (use_env_llm and settings.llm_enabled) else None)
@@ -377,7 +377,7 @@ class AegisService:
         self._pipelines: dict[str, IngestPipeline] = {}
         self._sentinels: dict[str, Sentinel] = {}
         self._bundles: dict[str, IOCBundle] = {}
-        self._atlas_seen: dict[str, set[tuple[str, str, str]]] = defaultdict(set)
+        self._constellation_seen: dict[str, set[tuple[str, str, str]]] = defaultdict(set)
         self._ingest_lock = threading.RLock()
         self._state_lock = threading.RLock()
         self._lab: dict[str, LabContext] = {}
@@ -687,9 +687,9 @@ class AegisService:
             if sentinel is not None:
                 sentinel.bundle = bundle
         try:
-            self.atlas.ingest_ioc_bundle(tenant_id, data, self.ioc_keyring, now=self.clock())
-        except (AtlasError, ValueError) as exc:
-            log.error("ATLAS could not ingest IOC bundle attributions: %s", exc)
+            self.constellation.ingest_ioc_bundle(tenant_id, data, self.ioc_keyring, now=self.clock())
+        except (ConstellationError, ValueError) as exc:
+            log.error("CONSTELLATION could not ingest IOC bundle attributions: %s", exc)
         return bundle
 
     def ioc_status(self, tenant_id: str) -> dict[str, Any] | None:
@@ -909,7 +909,7 @@ class AegisService:
         if events:
             self._update_coverage(tenant_id, events)
             self._update_history(tenant_id, events)
-            self._update_atlas(tenant_id, events)
+            self._update_constellation(tenant_id, events)
         sentinel = self._sentinel(tenant_id)
         findings = sentinel.process_batch(events)
         if flush_at is not None:
@@ -1064,9 +1064,9 @@ class AegisService:
             self._history_span[tenant_id] = (lo, hi)
             self.history.set_window(tenant_id, max(1.0, (hi - lo).total_seconds() / 86400.0))
 
-    def _update_atlas(self, tenant_id: str, events: list[ObservationEvent]) -> None:
+    def _update_constellation(self, tenant_id: str, events: list[ObservationEvent]) -> None:
         """Resolver answers -> ``observed_resolves_to`` edges, one observation per (name, ip, day)."""
-        seen = self._atlas_seen[tenant_id]
+        seen = self._constellation_seen[tenant_id]
         for ev in events:
             dns = ev.dns
             if dns is None or str(dns.rcode).upper() != "NOERROR" or not dns.answers:
@@ -1086,11 +1086,11 @@ class AegisService:
                     continue
                 seen.add(key)
                 try:
-                    self.atlas.upsert_edge(tenant_id, domain, ip, EdgeType.OBSERVED_RESOLVES_TO, ev.observed_at,
+                    self.constellation.upsert_edge(tenant_id, domain, ip, EdgeType.OBSERVED_RESOLVES_TO, ev.observed_at,
                                            f"{ev.event_id}:{ip}", EvidenceGrade.B, f"sensor:{ev.source_id}")
-                except (AtlasError, ValueError) as exc:
-                    log.warning("ATLAS rejected resolution edge: %s", exc)
-        if len(seen) > 2_000_000:  # bound memory; ATLAS itself is idempotent per provenance id
+                except (ConstellationError, ValueError) as exc:
+                    log.warning("CONSTELLATION rejected resolution edge: %s", exc)
+        if len(seen) > 2_000_000:  # bound memory; CONSTELLATION itself is idempotent per provenance id
             seen.clear()
 
     # ------------------------------------------------------------------ queries
@@ -1199,17 +1199,17 @@ class AegisService:
             except ValueError as exc:
                 raise InvalidInputError(f"not a graph node or indicator: {node!r}") from exc
         t = _aware(as_of) if as_of else None
-        n = self.atlas.get_node(tenant_id, nid, t)
+        n = self.constellation.get_node(tenant_id, nid, t)
         if n is None:
             raise NotFoundError("node not found")
-        neighbors = self.atlas.neighbors(tenant_id, nid, t)
+        neighbors = self.constellation.neighbors(tenant_id, nid, t)
         try:
-            shared = self.atlas.is_shared_hosting(tenant_id, nid, t)
+            shared = self.constellation.is_shared_hosting(tenant_id, nid, t)
         except ValueError:
             shared = False
         return {"node": n, "shared_hosting": shared, "degree": len(neighbors),
                 "neighbors": neighbors[:500], "truncated": len(neighbors) > 500,
-                "candidate_links": self.atlas.candidate_links(tenant_id, nid, t, limit=10),
+                "candidate_links": self.constellation.candidate_links(tenant_id, nid, t, limit=10),
                 "as_of": t}
 
     def verify_ledger(self, tenant_id: str) -> dict[str, Any]:
@@ -1402,7 +1402,7 @@ class AegisService:
 
     def _run_simulation(self, action: ProposedAction) -> MirrorResult:
         case = self.cases.get(action.tenant_id, action.case_id)
-        return mirror_simulate(action, self._topologies.get(action.tenant_id), self.atlas, self.history,
+        return mirror_simulate(action, self._topologies.get(action.tenant_id), self.constellation, self.history,
                                now=self.clock(), case_indicators=self._case_indicators(case) if case else (),
                                case_entities=self._case_entities(case) if case else set())
 

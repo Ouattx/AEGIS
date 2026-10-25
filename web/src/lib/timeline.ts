@@ -85,7 +85,7 @@ export function toTimeline(entries: HistoryEntry[]): TimelineItem[] {
         case "investigation_requested":
           return { ...base, title: "Investigation re-run requested", body: null, actor: s(p.actor), tone: "info" as const, details: [] };
         case "snapshot":
-        case "atlas_snapshot":
+        case "constellation_snapshot":
           return { ...base, title: e.entry_type === "snapshot" ? "Ledger snapshot anchored" : "Graph snapshot anchored", body: s(p.reason), actor: null, tone: "dim" as const, details: s(p.snapshot_hash) ? [`snapshot ${s(p.snapshot_hash)}`] : [] };
         default:
           return { ...base, title: humanize(e.entry_type), body: s(p.reason) ?? s(p.note) ?? null, actor: s(p.actor) ?? s(p.agent), tone: "info" as const, details: [] };

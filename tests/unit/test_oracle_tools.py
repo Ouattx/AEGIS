@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from aegis.atlas import Atlas
+from aegis.constellation import Constellation
 from aegis.contracts.models import (
     ActionType,
     Case,
@@ -49,7 +49,7 @@ def stores(tmp_path):
     ledger = Ledger(sf)
     docs = DocStore(sf)
     yield {"docs": docs, "ledger": ledger, "evidence": EvidenceStore(docs, ledger),
-           "atlas": Atlas(sf, ledger=ledger)}
+           "constellation": Constellation(sf, ledger=ledger)}
     eng.dispose()
 
 
@@ -149,7 +149,7 @@ def test_no_tool_or_writer_can_modify_policy(stores):
                                     signer_key_id="", signature=""), signer)
     stores["docs"].put(pol)
     ts = build_default_toolset(docstore=stores["docs"], evidence_store=stores["evidence"],
-                               ledger=stores["ledger"], atlas=stores["atlas"], keyring=ring)
+                               ledger=stores["ledger"], constellation=stores["constellation"], keyring=ring)
     case = make_case()
     head_before = stores["ledger"].head(TEN)
     for name in ts.names():
@@ -205,14 +205,14 @@ def test_evidence_appender_scope(stores):
 def test_scope_writers_by_agent(stores):
     case = make_case()
     ts = build_default_toolset(docstore=stores["docs"], evidence_store=stores["evidence"],
-                               ledger=stores["ledger"], atlas=stores["atlas"])
+                               ledger=stores["ledger"], constellation=stores["constellation"])
     assert isinstance(ts.scope(AgentName.THREAT_CORRELATION, case).writer(), CandidateEdgeWriter)
     assert isinstance(ts.scope(AgentName.POLICY_CHECKER, case).writer(), LedgerNoteWriter)
     assert isinstance(ts.scope(AgentName.VERIFIER, case).writer(), LedgerNoteWriter)
     assert isinstance(ts.scope(AgentName.RESPONSE_PLANNER, case).writer(), ProposalWriter)
     cw = ts.scope(AgentName.THREAT_CORRELATION, case).writer()
     eid = cw.add("domain:a.example", "domain:b.example", "co_observed", "shared neighbour")
-    edge = stores["atlas"].get_edge(TEN, eid)
+    edge = stores["constellation"].get_edge(TEN, eid)
     assert edge.candidate and not edge.enforcement_eligible
     assert CandidateEdgeWriter(None, case).add("domain:a.example", "domain:b.example",
                                                "co_observed", "r") is None

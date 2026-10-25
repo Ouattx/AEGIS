@@ -58,7 +58,7 @@ collectors (NetFlow/IPFIX, resolver DNS, Zeek, CPE)          signed IOC bundles,
         |    -> pre-registered fusion with ABSTAIN when context is short
    PROVENANCE: evidence store (SHA-256) + hash-chained signed ledger + snapshots + replay
         |
-   ATLAS temporal graph  ->  ORACLE cases: counter-hypothesis review, bounded investigation
+   CONSTELLATION temporal graph  ->  ORACLE cases: counter-hypothesis review, bounded investigation
         |
    MIRROR: impact simulation (co-tenants, collateral, reversibility) -> authorize() -> four-eyes
         |    -> adapter (dry-run | RPZ | webhook) with circuit breaker and rollback

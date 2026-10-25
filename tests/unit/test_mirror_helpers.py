@@ -105,7 +105,7 @@ def ledger(tmp_path, signer: Signer | None = None) -> Ledger:
     return Ledger(make_session_factory(eng), signer=signer)
 
 
-def session_factory(tmp_path, name: str = "atlas.db"):
+def session_factory(tmp_path, name: str = "constellation.db"):
     eng = make_engine(f"sqlite:///{tmp_path / name}")
     init_db(eng)
     return make_session_factory(eng)

@@ -50,7 +50,7 @@ _INTENTS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("ledger", re.compile(r"\b(ledger|registre|audit|hash chain|chaine|integrity|integrite|provenance|tamper\w*)\b")),
     ("simulate", re.compile(r"\b(simulat\w*|simuler|impact|what if|collateral|collateraux|que se passerait)\b")),
     ("graph", re.compile(r"\b(graph\w*|graphe|neighbou?rs?|voisins?|related|lie[se]?|infrastructure|hosting|"
-                         r"hebergement|resolves?|atlas)\b")),
+                         r"hebergement|resolves?|constellation)\b")),
     ("cases", re.compile(r"\b(cases?|dossiers?|investigation\w*|enquete\w*|verified|verifie\w*)\b")),
     ("findings", re.compile(r"\b(findings?|alerts?|alertes?|detections?|constats?|malicious|malveillant\w*|"
                             r"suspicious|suspect\w*|devices?|appareils?|abstain\w*|benign|benin\w*)\b")),

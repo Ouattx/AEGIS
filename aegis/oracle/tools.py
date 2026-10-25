@@ -185,12 +185,12 @@ class Toolset:
 
     def __init__(self, *, evidence_store: EvidenceStore | None = None,
                  ledger: Ledger | None = None, docstore: DocStore | None = None,
-                 atlas: Any | None = None):
+                 constellation: Any | None = None):
         self._tools: dict[str, ReadTool] = {}
         self.evidence_store = evidence_store
         self.ledger = ledger
         self.docstore = docstore
-        self.atlas = atlas
+        self.constellation = constellation
 
     def register(self, tool: ReadTool) -> None:
         if not isinstance(tool, ReadTool) or tool.read_only is not True:
@@ -244,7 +244,7 @@ class AgentScope:
             return EvidenceAppender(ts.evidence_store, self.case, self.agent,
                                     allowed_kinds={EvidenceKind.COUNTER_HYPOTHESIS})
         if self.agent is AgentName.THREAT_CORRELATION:
-            return CandidateEdgeWriter(ts.atlas, self.case)
+            return CandidateEdgeWriter(ts.constellation, self.case)
         if self.agent is AgentName.POLICY_CHECKER:
             return LedgerNoteWriter(ts.ledger, self.case, self.agent, "oracle_advisory")
         if self.agent is AgentName.VERIFIER:
@@ -304,14 +304,14 @@ class EvidenceAppender:
 class CandidateEdgeWriter:
     """Threat-correlation scope: candidate (grade E, investigative-only) edges only."""
 
-    def __init__(self, atlas: Any | None, case: Case):
-        self._atlas = atlas
+    def __init__(self, constellation: Any | None, case: Case):
+        self._constellation = constellation
         self._case = case
         self.written: list[str] = []
 
     def add(self, src: str, dst: str, edge_type: str, rationale: str,
             observed_at: datetime | None = None) -> str | None:
-        if self._atlas is None:
+        if self._constellation is None:
             return None
         at = observed_at or datetime.now(timezone.utc)
         # The provenance id identifies this exact observation (content digest), so re-running
@@ -320,7 +320,7 @@ class CandidateEdgeWriter:
         digest = hashlib.sha256(json.dumps([src, dst, edge_type, at.isoformat(), rationale],
                                            ensure_ascii=False).encode("utf-8")).hexdigest()[:32]
         prov = f"oracle:{self._case.case_id}:{digest}"
-        edge = self._atlas.add_candidate_edge(self._case.tenant_id, src, dst, edge_type, at, prov,
+        edge = self._constellation.add_candidate_edge(self._case.tenant_id, src, dst, edge_type, at, prov,
                                               rationale=rationale)
         self.written.append(edge.edge_id)
         return edge.edge_id
@@ -439,7 +439,7 @@ def indicators_from_evidence(evidences: Iterable[dict[str, Any] | Evidence]) -> 
 
 
 def build_default_toolset(*, docstore: DocStore, evidence_store: EvidenceStore, ledger: Ledger,
-                          atlas: Any | None = None, keyring: KeyRing | None = None,
+                          constellation: Any | None = None, keyring: KeyRing | None = None,
                           connectors: Iterable[IntelConnector] = (),
                           simulator: Callable[[ProposedAction], MirrorResult] | None = None,
                           clock: Callable[[], datetime] | None = None,
@@ -452,7 +452,7 @@ def build_default_toolset(*, docstore: DocStore, evidence_store: EvidenceStore, 
     ``provenance_check`` (falls back to ``keyring`` when not given).
     """
     now = clock or (lambda: datetime.now(timezone.utc))
-    ts = Toolset(evidence_store=evidence_store, ledger=ledger, docstore=docstore, atlas=atlas)
+    ts = Toolset(evidence_store=evidence_store, ledger=ledger, docstore=docstore, constellation=constellation)
     connectors = list(connectors)
 
     def load(case: Case) -> list[tuple[Evidence, bool]]:
@@ -504,9 +504,9 @@ def build_default_toolset(*, docstore: DocStore, evidence_store: EvidenceStore, 
                 "labels": sorted({f.get("label", "") for f in findings} - {""})}
 
     def graph_context(case: Case, args: dict[str, Any]) -> dict[str, Any]:
-        if atlas is None:
+        if constellation is None:
             return {"available": False, "indicators": []}
-        from aegis.atlas.graph import indicator_node_id, parse_node_id
+        from aegis.constellation.graph import indicator_node_id, parse_node_id
 
         out = []
         for ind in [i for i in args.get("indicators", []) if isinstance(i, str)][:20]:
@@ -514,13 +514,13 @@ def build_default_toolset(*, docstore: DocStore, evidence_store: EvidenceStore, 
                 nid = indicator_node_id(ind)
             except ValueError:
                 continue
-            nbrs = atlas.neighbors(case.tenant_id, nid)
-            shared = (atlas.is_shared_hosting(case.tenant_id, nid)
+            nbrs = constellation.neighbors(case.tenant_id, nid)
+            shared = (constellation.is_shared_hosting(case.tenant_id, nid)
                       if parse_node_id(nid)[0].value == "ip" else False)
             resolved_shared = sorted({n.node_id for n in nbrs
                                       if n.node_type.value == "ip"
-                                      and atlas.is_shared_hosting(case.tenant_id, n.node_id)})
-            node = atlas.get_node(case.tenant_id, nid)
+                                      and constellation.is_shared_hosting(case.tenant_id, n.node_id)})
+            node = constellation.get_node(case.tenant_id, nid)
             out.append({
                 "indicator": ind, "node_id": nid, "known": node is not None,
                 "node_attrs": node.attrs if node else {},
@@ -532,7 +532,7 @@ def build_default_toolset(*, docstore: DocStore, evidence_store: EvidenceStore, 
                                "enforcement_eligible": n.edge.enforcement_eligible,
                                "reasons": n.edge.eligibility_reasons} for n in nbrs[:25]],
                 "candidate_links": [c.model_dump(mode="json")
-                                    for c in atlas.candidate_links(case.tenant_id, nid, limit=5)],
+                                    for c in constellation.candidate_links(case.tenant_id, nid, limit=5)],
             })
         return {"available": True, "indicators": out}
 
@@ -584,7 +584,7 @@ def build_default_toolset(*, docstore: DocStore, evidence_store: EvidenceStore, 
         ("intel_lookup", AgentName.EVIDENCE_COLLECTOR, "Approved intel connectors (read-only)", intel_lookup),
         ("benign_context", AgentName.ALTERNATIVE_HYPOTHESIS, "Benign baselines and counter-evidence",
          benign_context),
-        ("graph_context", AgentName.THREAT_CORRELATION, "ATLAS neighbourhood of indicators", graph_context),
+        ("graph_context", AgentName.THREAT_CORRELATION, "CONSTELLATION neighbourhood of indicators", graph_context),
         ("timeline", AgentName.THREAT_CORRELATION, "Ledger timeline of the case", timeline),
         ("policy_status", AgentName.POLICY_CHECKER, "Operator policies and signature status", policy_status),
         ("provenance_check", AgentName.VERIFIER, "Evidence hashes and ledger chain", provenance_check),

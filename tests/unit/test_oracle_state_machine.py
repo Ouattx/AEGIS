@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from aegis.atlas import Atlas
+from aegis.constellation import Constellation
 from aegis.contracts.models import (
     ActionType,
     AuthorizationDecision,
@@ -52,9 +52,9 @@ class Env:
         self.ring = KeyRing()
         self.ring.add_signer(self.policy_signer)
         self.ring.add_signer(self.ledger_signer)
-        self.atlas = Atlas(sf, ledger=self.ledger)
+        self.constellation = Constellation(sf, ledger=self.ledger)
         self.svc = CaseService(self.docs, self.evidence, self.ledger,
-                               keyring=self.ring if with_keyring else None, atlas=self.atlas)
+                               keyring=self.ring if with_keyring else None, constellation=self.constellation)
 
     def ev(self, group: str, *, kind=EvidenceKind.OBSERVATION, supports=True, payload=None,
            origin=None) -> Evidence:
@@ -287,11 +287,11 @@ def test_verified_requires_counter_hypothesis_review(env):
     assert case.reviewer == "analyst@isp" and case.alternative_hypotheses
 
 
-def test_verified_snapshots_ledger_and_atlas(env):
+def test_verified_snapshots_ledger_and_constellation(env):
     case = env.verified()
     snaps = env.ledger.entries(TEN, subject_id=case.case_id, entry_type=EntryType.SNAPSHOT)
     assert snaps and snaps[-1].payload["snapshot_hash"] == case.snapshot_hash
-    assert env.ledger.entries(TEN, subject_id=case.case_id, entry_type="atlas_snapshot")
+    assert env.ledger.entries(TEN, subject_id=case.case_id, entry_type="constellation_snapshot")
     assert S.VERIFIED in MAJOR_TRANSITIONS
 
 

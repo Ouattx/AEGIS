@@ -198,9 +198,9 @@ def test_evidence_and_ledger_endpoints(env):
 def test_graph_endpoint(env):
     svc, client = env
     from datetime import datetime, timezone
-    from aegis.atlas.graph import EdgeType, EvidenceGrade
+    from aegis.constellation.graph import EdgeType, EvidenceGrade
     now = datetime.now(timezone.utc)
-    svc.atlas.upsert_edge(T, "domain:c2.badbox.example", "ip:203.0.113.10", EdgeType.OBSERVED_RESOLVES_TO, now,
+    svc.constellation.upsert_edge(T, "domain:c2.badbox.example", "ip:203.0.113.10", EdgeType.OBSERVED_RESOLVES_TO, now,
                           "ev-1:203.0.113.10", EvidenceGrade.B, "sensor:dns")
     h = auth(svc, T, "viewer")
     r = client.get("/api/v1/graph/c2.badbox.example", headers=h)

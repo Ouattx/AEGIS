@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from aegis.atlas.graph import EdgeType, EvidenceGrade
+from aegis.constellation.graph import EdgeType, EvidenceGrade
 from aegis.contracts.models import LedgerEntry
 from aegis.copilot import DEFAULT_TOOLS, ServiceDataSource
 from aegis.copilot.tools import ToolContext, ToolNotFound, analyze_ingest, tool_map
@@ -98,7 +98,7 @@ def test_campaigns_from_ledger(env):
 def test_graph_neighbors(env):
     svc, _ = env
     now = svc.clock()
-    svc.atlas.upsert_edge(A, f"domain:{C2_DOMAIN}", f"ip:{C2_IP}", EdgeType.OBSERVED_RESOLVES_TO, now, "prov-1",
+    svc.constellation.upsert_edge(A, f"domain:{C2_DOMAIN}", f"ip:{C2_IP}", EdgeType.OBSERVED_RESOLVES_TO, now, "prov-1",
                           EvidenceGrade.B, "sensor")
     out = _call(svc, "graph_neighbors", {"node": C2_DOMAIN})
     assert out.data["node_id"] == f"domain:{C2_DOMAIN}" and out.data["degree"] == 1
