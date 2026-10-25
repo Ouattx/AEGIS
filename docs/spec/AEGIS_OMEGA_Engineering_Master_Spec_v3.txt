@@ -1,0 +1,382 @@
+Engineering Master Specification v3.0 | Implementation & Acceptance
+Baseline
+
+CONFIDENTIAL — Proposed Architecture — 25 October 2026
+
+Two products: SHIELD (network/device cybersecurity) and RIGHTS
+(authorized anti-piracy intelligence). One shared evidence and
+intelligence fabric.
+
+0. Executive engineering mandate
+
+Build an evidence-first, continuously operating security intelligence
+platform. AI proposes and investigates; deterministic authorization
+controls enforcement. No universal-blocking or superiority guarantee.
+Every release must be supported by reproducible benchmark evidence.
+
+Product boundary: SHIELD classifies malicious device/network behavior;
+RIGHTS handles suspected copyright infringement based on independently
+verified rights and legally permitted evidence. Never equate IPTV usage
+with illegality or compromise.
+
+1. Deployment modes and boundaries
+
+  -----------------------------------------------------------------------
+  Mode                    Data                    Permitted output
+  ----------------------- ----------------------- -----------------------
+  Offline lab             Synthetic/consented     Research and evaluation
+                          captures                
+
+  ISP shadow              Authorized aggregated   Alerts, reports, no
+                          flow/DNS/security       blocking
+                          telemetry               
+
+  ISP active              Authorized operator     Approved reversible
+                          integrations            security policy
+
+  Rights-holder           Verified infringement   Case package and
+                          case evidence           authorized requests
+  -----------------------------------------------------------------------
+
+No DPI payload capture by default; no TLS decryption, device
+exploitation, microphone/camera access, subscriber viewing-profile
+inference or covert scanning. Operators retain enforcement control.
+
+2. Reference architecture
+
+Operator collectors -> Kafka/Redpanda -> schema validator -> enrichment
+-> feature workers
+-> Sentinel detection -> Atlas graph -> Oracle case workflow ->
+Provenance ledger
+-> Mirror impact simulation -> policy authorization -> operator adapter
+-> outcome telemetry -> Evolve offline evaluation -> approved canary
+deployment
+
+Control plane: FastAPI, Temporal workflows, PostgreSQL, OIDC/RBAC,
+policy-as-code (OPA or equivalent). Data plane: Go/Rust collectors where
+necessary, Kafka, ClickHouse event analytics, object evidence store.
+Graph: PostgreSQL adjacency or Neo4j after measured need. ML: LightGBM
+baseline, calibrated models, MLflow registry. Observability:
+OpenTelemetry/Prometheus/Grafana. Kubernetes only after workload
+warrants it.
+
+3. Canonical data contracts
+
+3.1 ObservationEvent
+
+{
+"event_id":"uuid", "schema_version":"3.0", "tenant_id":"uuid",
+"observed_at":"RFC3339", "ingested_at":"RFC3339",
+"source_id":"string", "collection_authorization_id":"string",
+"device_pseudonym":"string|null", "network_features":{
+"flow_duration_ms":1200,"bytes_out":4120,"bytes_in":8300,
+"destinations_15m":12,"dns_nxdomain_rate_15m":0.04},
+"raw_artifact_ref":"object://...|null",
+"data_class":"security_metadata",
+"retention_until":"RFC3339", "integrity_sha256":"hex"
+}
+
+Strict JSON Schema/Protobuf definitions; reject unknown required-field
+types; quarantine malformed events; preserve original bytes under
+authorized retention policy; never infer missing values as zero. Version
+migrations require compatibility tests.
+
+3.2 Finding, Evidence, Case
+
+Finding {finding_id, tenant_id, detector_version, label, score,
+calibration_id, observed_window, evidence_ids[], counterevidence_ids[],
+status:[candidate,triage,verified,rejected,expired], expires_at}
+Evidence {evidence_id, origin_source, source_independence_group,
+collected_at, sha256, artifact_ref, license, authorization_id}
+Case {case_id, hypothesis, alternative_hypotheses[], findings[],
+decisions[], reviewer, snapshot_hash, model_versions[], status}
+
+Evidence must be source-traceable. Multiple feeds syndicating the same
+report count as one origin. Scores are not probabilities until
+calibrated and validated.
+
+4. SENTINEL: network detection
+
+Baseline features per 5m/15m/24h device-class window: flow count, bytes
+in/out, unique destination count, destination entropy, connection
+interval quantiles, DNS NXDOMAIN rate, protocol mix, verified IOC
+contacts, burstiness, and baseline deviation. Normalize by device class
+and network context. Explicit missingness indicators.
+
+Detection ensemble: (A) signed deterministic IOC/rules, (B) supervised
+LightGBM, (C) robust anomaly detector, (D) temporal change-point
+analysis. Fusion must use a calibrated meta-model or pre-registered
+rules; no uncalibrated averaging of heterogeneous scores.
+Unknown/abstain is mandatory.
+
+on observation(event):
+validate_authorization_and_schema(event)
+features = window_store.update(event)
+if insufficient_context(features): return ABSTAIN
+rules = ioc_match(features, verified_fresh_indicators)
+ml = calibrated_model.predict(features)
+candidate = fusion_policy(rules, ml, context=features)
+if candidate.requires_review: emit("investigation.requested", candidate)
+
+Training split: time-forward holdout plus campaign/device/infrastructure
+group isolation. Report precision, recall, PR-AUC, calibration error,
+false alerts per 10k device-days, and per-tenant drift. Test on
+previously unseen devices and benign streaming workloads.
+
+5. ATLAS: temporal infrastructure graph
+
+Nodes: domain, IP, ASN, certificate, malware family, incident, device
+class, rights case, source. Edges: observed_resolves_to,
+verified_contacts, co_observed, attributed_to, mentioned_in_case. Each
+edge carries first_seen, last_seen, provenance IDs, evidence grade,
+independent-source count and TTL. Weak co-hosting edges never
+automatically trigger enforcement.
+
+Incremental graph update via idempotent event consumer. Temporal queries
+must support “as known at timestamp T”; snapshots content-hashed daily
+and on major case transitions. Candidate link prediction is
+investigative only.
+
+6. ORACLE: bounded AI investigation
+
+  ------------------------------------------------------------------------
+  Agent                    Tools                   Write scope
+  ------------------------ ----------------------- -----------------------
+  Evidence collector       Approved read-only      Append evidence
+                           intelligence connectors 
+
+  Alternative-hypothesis   Read evidence + benign  Append counterarguments
+                           baselines               
+
+  Threat correlation       Read graph and timeline Candidate edges only
+
+  Legal/policy checker     Read approved           Advisory finding
+                           policy/authorization    
+
+  Verifier                 Read original           Case verification
+                           evidence + provenance   recommendation
+
+  Response planner         Read verified case +    Proposal only
+                           simulator               
+  ------------------------------------------------------------------------
+
+Use typed workflows with max 12 tool calls per case, configurable
+cost/token budget, 10-minute initial deadline, retry ≤3 with exponential
+backoff, human escalation on inconclusive/contradictory findings. No
+agent can modify policies, production models, or enforcement privileges.
+Tool outputs treated as untrusted and isolated from instructions.
+
+CASE_STATES = NEW -> TRIAGE -> INVESTIGATING ->
+{VERIFIED, REJECTED, INCONCLUSIVE} ->
+{PROPOSED, CLOSED} -> {APPROVED, DENIED} ->
+{EXECUTED, ROLLED_BACK, EXPIRED}
+
+Transition guard: VERIFIED requires qualifying evidence plus
+counter-hypothesis review; PROPOSED requires authorization assessment;
+EXECUTED requires explicit signed policy approval and successful MIRROR
+simulation. RIGHTS cases require jurisdiction-specific legal
+authorization.
+
+7. SPECTRE: compromised-device detection
+
+Use opt-in/authorized gateway telemetry to identify known C2
+communications, suspicious proxying, unexpected sustained egress and
+botnet-like timing. Produce separate malware-confidence,
+vulnerability-exposure and abuse-risk scores. Device identity remains
+pseudonymous unless an authorized operator workflow needs linkage. Never
+assert compromise from device origin, vendor, IPTV app presence or
+geography alone.
+
+Lab corpus must include benign Android TV, smart TVs, legitimate IPTV,
+firmware updates, gaming, VPNs, CDNs and controlled malware emulation;
+label device-day outcomes independently. All experiments isolated from
+public networks.
+
+8. RIGHTS: anti-piracy intelligence
+
+Input: licensed fingerprint matches or rights-holder evidence, validated
+entitlement/ownership metadata, legally collected observations,
+court/authority orders where applicable. Output: verified case packages,
+infrastructure correlation, scoped recommended controls. Copyright
+infringement is a distinct evidence ontology from cybersecurity
+compromise. Shared IP/CDN collateral impact blocks automatic escalation.
+Maintain case-specific jurisdiction, order scope, expiry and appeal
+metadata.
+
+9. MIRROR: enforcement simulation
+
+Given a proposed DNS/IP/device control, compute affected entities, known
+legitimate co-tenants, historic aggregate impact, dependencies,
+reversibility and unknowns. Fail closed when topology is incomplete or
+authorization absent. First run shadow mode, then limited canary with
+operator-approved thresholds.
+
+authorize(action) = signed_operator_policy
+AND legal_basis_valid(action)
+AND evidence_quality_pass(action)
+AND mirror_result == SAFE
+AND action.scope <= approved_scope
+AND action.expires_at != null
+AND rollback_plan_verified(action)
+
+Any large shared-hosting target, uncertain collateral impact or
+rights-related blocking requires human approval. Rollback tested during
+pilot; circuit breaker trips on abnormal legitimate traffic errors.
+
+10. EVOLVE: research and learning factory
+
+Pipeline: analyst-verified outcomes -> dedup/label quality -> drift
+alerts -> candidate training -> frozen time-forward evaluation ->
+adversarial tests -> model card -> signed approval -> shadow -> canary
+-> promote/rollback. Never let an LLM autonomously merge code or change
+production policy.
+
+Research tracks: temporal graph learning, uncertainty-aware ensembles,
+open-set recognition, privacy-preserving cross-operator intelligence,
+causal-style counterfactual testing. Each track requires preregistered
+hypotheses and baseline comparison; abandon features that do not improve
+measured outcomes. Federated learning is optional and gated by
+poisoning/privacy threat modeling.
+
+11. PROVENANCE: evidence integrity
+
+SHA-256 hashes, signed manifests, append-only event log, immutable
+snapshot IDs, timestamps, chain of custody and corrections as new
+versions. Investigator replay must recover model version, rules, sources
+and evidence visible at original decision time. Protect subscriber
+identities with separate tenant-controlled mappings and retention
+limits.
+
+12. Security, privacy and compliance gates
+
+GDPR purpose limitation, DPIA where applicable, ePrivacy
+confidentiality, French/EU open-internet obligations, applicable
+Arcom/judicial blocking rules, NIS2/AI Act applicability review by
+counsel. Mutual TLS, least privilege, per-tenant keys, MFA, SSO, SBOM,
+signed builds, secrets vault, penetration tests, audit alerts, DLP and
+retention enforcement. No live enforcement before written operator
+authorization and legal signoff.
+
+13. Reliability, SLOs and cost
+
+  -----------------------------------------------------------------------
+  Measure                 MVP gate                Production target (to
+                                                  validate)
+  ----------------------- ----------------------- -----------------------
+  Ingestion success       ≥99.9% valid events     ≥99.99%
+
+  P95 known-IOC alert     ≤120 s                  ≤30 s
+  latency                                         
+
+  Evidence provenance     100% for enforcement    100%
+                          cases                   
+
+  Unapproved enforcement  0                       0
+
+  Service availability    ≥99.5%                  ≥99.95%
+
+  False alerts            Measure per 10k         Customer-agreed budget
+                          device-days             
+  -----------------------------------------------------------------------
+
+Load test tiers: 1k, 10k, 100k, 1M events/s only with explicit event
+sizes and infrastructure budget. Record cost per million events,
+investigation, protected device-month and retained GB. Backpressure,
+dead-letter queues, per-tenant quotas and degraded operation without LLM
+inference are required.
+
+14. Independent evaluation protocol
+
+Create frozen datasets: A confirmed malicious device activity, B
+representative legitimate traffic, C legally verified infringement
+cases. Time-forward split, no shared campaign or device between train
+and test, independent labels, no contaminated threat feed copies.
+Compare deterministic baseline, supervised model, ensemble,
+graph+agents, and at least one external accessible baseline.
+
+Publish sample counts, confidence intervals, per-device class confusion
+matrices, PR curves, false alerts/device-day, detection delay, analyst
+minutes/case, collateral impact and full cost. Test high-prevalence and
+low-prevalence deployment scenarios. Never report “99.5% accuracy”
+without base rate and error cost.
+
+Release gate: statistically supported improvement on at least one
+customer-prioritized metric without regression beyond predefined limits
+on false positives, privacy, availability and cost. Superiority claims
+limited to tested metrics and scenarios.
+
+15. Threat model and adversarial tests
+
+Threats: spoofed telemetry, feed poisoning, data leakage, malicious
+connector outputs, prompt injection, graph overlinking, model evasion,
+cross-tenant access, unauthorized blocking, insider misuse, compromised
+signing keys, false infringement claims.
+
+Mandatory tests: benign IPTV untouched; malicious lab box detected;
+shared CDN not indiscriminately blocked; contradictory feeds downgrade
+finding; unavailable LLM does not disable baseline alerts; expired
+authorization prevents action; compromised agent cannot alter policy;
+rollback restores service; model drift prevents silent promotion; replay
+uses only contemporaneous evidence.
+
+16. Implementation backlog: first 90 days
+
+  -----------------------------------------------------------------------
+  Sprint                  Deliverable             Definition of done
+  ----------------------- ----------------------- -----------------------
+  Weeks 1–2               Threat model, schemas,  Reviewed ADRs,
+                          legal/data map, lab     validated schemas,
+                          corpus                  labeled sample
+
+  Weeks 3–4               Ingestion, evidence     Replayable event path,
+                          ledger, basic dashboard integrity tests
+
+  Weeks 5–6               Rules + LightGBM +      Frozen benchmark and
+                          calibration             error analysis
+
+  Weeks 7–8               Graph + bounded case    Case replay,
+                          workflows               counter-hypothesis
+                                                  tests
+
+  Weeks 9–10              Device detection +      Device-day metrics,
+                          shadow alerts           zero blocking
+
+  Weeks 11–12             Simulation +            Impact tests, demo,
+                          independent pilot       go/no-go decision
+                          report                  
+  -----------------------------------------------------------------------
+
+Team baseline: 1 security/network engineer, 1 backend/data engineer, 1
+applied ML engineer, fractional SRE, security/privacy counsel and access
+to operator or laboratory domain expertise. Customer telemetry access is
+a major schedule dependency.
+
+17. Final acceptance checklist
+
+A. All services have versioned contracts and owners. B. Tests run in CI.
+C. Every finding cites evidence. D. Counter-hypothesis review is
+implemented. E. Model evaluation is reproducible. F. Zero unauthorized
+enforcement. G. Shadow pilot meets agreed false-alert budget. H.
+Security/privacy review completed. I. Rollback demonstrated. J. Unit
+economics and independent benchmark delivered.
+
+18. Strategic differentiation and defensibility
+
+The moat must come from legally obtained high-quality labels,
+longitudinal infrastructure evidence, operator integrations, feedback
+loops, calibrated low-false-positive device models and auditable
+enforcement—not from naming AI agents. Patentability and freedom to
+operate require independent IP counsel review.
+
+Decision rule: pursue SHIELD first if operator device-security demand
+and data access are strongest; pursue RIGHTS first only if a rights
+holder commits evidence and a viable lawful workflow. Do not merge
+success metrics or sales narratives.
+
+19. Engineering definition of elite
+
+Elite means proven: better detection at an acceptable false-alert rate;
+reproducible evidence; safe authorized actions; operational reliability;
+privacy-preserving data use; and a paying customer who confirms the
+improvement. The specification is a build and verification contract, not
+a promise of superiority.
